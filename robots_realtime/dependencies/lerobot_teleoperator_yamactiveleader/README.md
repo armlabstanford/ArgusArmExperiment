@@ -1,0 +1,46 @@
+# lerobot_teleoperator_yamactiveleader
+Active YAM teleop leader device integration for LeRobot
+
+<img src="media/drill_teleop.gif" width="400">
+<img src="media/yam_active_leader_dagger.gif" width="400">
+
+[Bill of Materials](BOM.md)
+
+[Onshape CAD](https://cad.onshape.com/documents/1bf1095238bbd48b2eeeb7b5/w/c5977f299960b20a4f0d6e0a/e/8cb256dc79a0563d72aa541c?renderMode=0&uiState=69af20032fb51000194a64a9)
+
+[Printable STL Files](stl_files)
+
+## Getting Started
+
+```bash
+git clone https://github.com/uynitsuj/lerobot_teleoperator_yamactiveleader
+cd lerobot_teleoperator_yamactiveleader
+uv pip install -e .
+
+lerobot-find-port # Find out which port the WaveShare Bus Servo Adapter is on, set as arg for setup_motors.py
+
+uv run setup_motors.py /dev/tty.usbmodem5AE60805531 # Need to write persistent motor IDs to servo onboard EEPROM
+
+# One-time step per device to write a calibration file for zero config and limits
+lerobot-calibrate --teleop.type=yam_active_leader --teleop.port=/dev/tty.usbmodem5AE60806691 --teleop.id=left
+lerobot-calibrate --teleop.type=yam_active_leader --teleop.port=/dev/tty.usbmodem5AE60805531 --teleop.id=right
+    
+```
+
+## Troubleshooting
+Issue:
+```
+serial.serialutil.SerialException: [Errno 13] could not open port /dev/ttyACM1: [Errno 13] Permission denied: '/dev/ttyACM1' Why do I see this and is there a way to rectify? 
+```
+This is a common permissions issue with serial ports on Linux.
+Solution: Add your user to the dialout group
+Run this command to add yourself to the dialout group:
+```
+sudo usermod -a -G dialout $USER
+```
+After running this command, you need to log out and log back in (or reboot) for the group membership to take effect.
+
+  To verify it worked after logging back in:
+  groups
+
+  You should see dialout in the list.

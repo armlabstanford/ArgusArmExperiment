@@ -1,0 +1,166 @@
+[build-system]
+requires = ["flit_core >= 3.4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "robots_realtime"
+version = "0.1.0"
+description = "A collection of realtime & high-frequency control interfaces for robot arms"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "viser",
+    "tyro",
+    "omegaconf",
+    "portal",
+    "dm-env==1.6",
+    "dm_control==1.0.30",
+    "dotdict==0.1",
+    "numpy",
+    "opencv-python",
+    "robot_descriptions",
+    "yourdfpy",
+    "ruff",
+    "pyroki @ git+https://github.com/chungmin99/pyroki.git@59aa21f",
+    "jaxls @ git+https://github.com/brentyi/jaxls.git@5f766d3",
+    "matplotlib",
+    "msgpack",
+    "msgpack_numpy",
+    "minimalmodbus",
+    "i2rt",
+    "uvicorn",
+    "fastapi",
+    "lerobot[feetech]",
+    "lerobot_teleoperator_yamactiveleader",
+    "xdof_sdk",
+    "gymnasium>=0.29",
+    "pyzmq>=27.1.0",
+    "python-can>=4.3.0",
+    "mcap>=1.3.1",
+    "mcap-protobuf-support>=0.5.4",
+    "protobuf>=6.33.1",
+    "openpi-client==0.1.2",
+]
+
+[project.scripts]
+rr-session = "robots_realtime.rr_session_cli:main"
+rr-replay  = "robots_realtime.rr_replay_cli:main"
+
+[project.optional-dependencies]
+sensors = [
+    "pyzed",
+]
+realsense = [
+    "pyrealsense2>=2.55",
+]
+franka_panda = [
+    "panda_python",
+]
+mjlab_sim = [
+    "mjlab",
+]
+sim = [
+    "gymnasium>=0.29",
+]
+
+[tool.uv.sources]
+panda_python = { path = "dependencies/panda_py_0.7.5_libfranka_0.10.0/panda_python-0.7.5+libfranka.0.10.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl" }
+pyzed = { path = "dependencies/pyzed-5.1-cp311-cp311-linux_x86_64.whl" }
+i2rt = { path = "dependencies/i2rt", editable = true }
+lerobot_teleoperator_yamactiveleader = { path = "dependencies/lerobot_teleoperator_yamactiveleader", editable = true }
+
+[tool.uv]
+override-dependencies = [
+    "numpy==1.26.4",
+    # mjlab requires mujoco>=3.5.0 and tyro>=1.0.1; override i2rt's hard pins.
+    # dm_control>=1.0.30 only needs mujoco>=3.3.2, so 3.5.0 is fine for all.
+    "mujoco>=3.5.0",
+    "tyro>=1.0.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["robots_realtime*"]
+exclude = ["configs*"]
+
+[project.urls]
+Repository = "https://github.com/uynitsuj/robots_realtime"
+
+[tool.flit.module]
+name = "robots_realtime"
+
+[tool.ruff]
+line-length = 119 # Set the max line length to 119 characters.
+# keep in alphabetical order
+lint.select = [
+    "ANN",  # annotations
+    "B",  # bugbear rules
+    "E",  # pycodestyle errors.
+    "F",  # Pyflakes rules.
+    "PLC",  # Pylint convention warnings.
+    "PLE",  # Pylint errors.
+    "PLR",  # Pylint refactor recommendations.
+    "PLW",  # Pylint warnings.
+    "I",  # Import sorting.
+    "RUF"  # Ruff rules.
+]
+# keep in alphabetical/numerical order
+lint.ignore = [
+    "ANN002",
+    "ANN003",
+    "ANN401",  # Dynamically typed expressions (typing.Any) are disallowed
+    "E402",
+    "E501",
+    "E741", # Ambiguous variable name. (l, O, or I)
+    "F405",
+    "F841",
+    "PLC0414",  # Import alias does not rename variable. (this is used for exporting names)
+    "PLC1901",  # Use falsey strings.
+    "PLR0911",  # Too many return statements.
+    "PLR0912",  # Too many branches.
+    "PLR0913",  # Too many arguments.
+    "PLR0915",  # Too many statements.
+    "PLR1722",
+    "PLR2004",  # Magic value used in comparison.
+    "PLW0603",  # Global statement updates are discouraged.
+    "PLW2901",  # For loop variable overwritten.
+    "RUF001",
+    "RUF009"
+]
+lint.extend-select = ["E501"]
+exclude = ["*.ipynb", "dependencies/*"]
+
+[tool.ruff.format]
+docstring-code-format = true
+skip-magic-trailing-comma = false
+
+[tool.pyright]
+pythonVersion = "3.11"
+ignore = ["dependencies/**", "robots_realtime/scripts/**"]
+
+reportMissingImports = "none"
+reportAttributeAccessIssue = "none"
+
+[tool.coverage.report]
+exclude_also = [
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+    "def __repr__",
+]
+omit = [
+    "*exceptions.py",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12.3",
+]
+
+[tool.ruff.lint.flake8-annotations]
+ignore-fully-untyped = true
+suppress-none-returning = true
+suppress-dummy-args = true
+mypy-init-return = true
+allow-star-arg-any = true
