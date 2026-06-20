@@ -58,7 +58,13 @@ def run(
     arm_err = np.max(np.abs(q0[:N_ARM] - START_QPOS))
     if arm_err > START_TOL:
         print(f"Arm is {arm_err:.4f} rad from start (tol {START_TOL}); moving to start pose ...")
-        robot.move_joints(START_QPOS, time_interval_s=START_MOVE_TIME)
+        steps = 50
+        for i in range(steps + 1):
+            alpha = i / steps
+            cmd = q0.copy()
+            cmd[:N_ARM] = (1 - alpha) * q0[:N_ARM] + alpha * START_QPOS
+            robot.command_joint_pos(cmd)
+            time.sleep(START_MOVE_TIME / steps)
         time.sleep(0.5)               # settle
         q0 = robot.get_joint_pos()    # re-read so the FK origin is the true start
     else:
