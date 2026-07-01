@@ -5,11 +5,10 @@ Preliminary testing and control scripts for I2RT YAM robot arms.
 ## Setup
 
 ```bash
-cd robots_realtime/dependencies/i2rt
+conda create -n yam_arms python=3.11 -y
+conda activate yam_arms
 
-# Install dependencies (creates .venv automatically)
-uv venv --python 3.11
-uv pip install -e .
+pip install -e robots_realtime/dependencies/i2rt
 ```
 
 ## CAN Bus Setup
@@ -35,16 +34,10 @@ sudo bash robots_realtime/dependencies/i2rt/scripts/reset_all_can.sh
 
 ## Testing the Arm
 
-All commands are run from the `robots_realtime/dependencies/i2rt` directory:
-
-```bash
-cd robots_realtime/dependencies/i2rt
-```
-
 ### Read Joint Positions (no movement)
 
 ```bash
-uv run python test_arm.py --channel can0 --read-only
+python robots_realtime/dependencies/i2rt/test_arm.py --channel can0 --read-only
 ```
 
 Continuously prints all 7 joint positions (6 arm + 1 gripper). Ctrl+C to exit.
@@ -52,7 +45,7 @@ Continuously prints all 7 joint positions (6 arm + 1 gripper). Ctrl+C to exit.
 ### Full Arm Movement Test
 
 ```bash
-uv run python test_arm.py --channel can0
+python robots_realtime/dependencies/i2rt/test_arm.py --channel can0
 ```
 
 Interactive step-by-step test that walks through each joint:
@@ -70,7 +63,7 @@ Each step waits for Enter before moving. Ctrl+C to abort at any time.
 Arm goes compliant so you can move it by hand:
 
 ```bash
-uv run python i2rt/robots/motor_chain_robot.py --channel can0
+python robots_realtime/dependencies/i2rt/i2rt/robots/motor_chain_robot.py --channel can0
 ```
 
 ### Gripper-Only Test
@@ -78,7 +71,7 @@ uv run python i2rt/robots/motor_chain_robot.py --channel can0
 Opens and closes the gripper repeatedly:
 
 ```bash
-uv run python i2rt/robots/motor_chain_robot.py --channel can0 --operation_mode test_gripper
+python robots_realtime/dependencies/i2rt/i2rt/robots/motor_chain_robot.py --channel can0 --operation_mode test_gripper
 ```
 
 ### Hold Current Position
@@ -86,7 +79,7 @@ uv run python i2rt/robots/motor_chain_robot.py --channel can0 --operation_mode t
 Locks the arm at its current pose:
 
 ```bash
-uv run python i2rt/robots/motor_chain_robot.py --channel can0 --operation_mode stay_current_qpos
+python robots_realtime/dependencies/i2rt/i2rt/robots/motor_chain_robot.py --channel can0 --operation_mode stay_current_qpos
 ```
 
 ## Python API
@@ -124,6 +117,6 @@ robot.close()
 ## Troubleshooting
 
 - **"No such device"**: CAN interface is not up. Run `sudo ip link set can0 up type can bitrate 1000000`.
-- **"No module named 'i2rt'"**: Run `uv pip install -e .` from the `robots_realtime/dependencies/i2rt` directory.
+- **"No module named 'i2rt'"**: Run `pip install -e robots_realtime/dependencies/i2rt`.
 - **Joint limit violation on startup**: Arm may need recalibration. Move it to the zero position and power cycle.
-- **Motors unresponsive**: Run `sudo bash scripts/reset_all_can.sh` to reset the CAN adapter.
+- **Motors unresponsive**: Run `sudo bash robots_realtime/dependencies/i2rt/scripts/reset_all_can.sh` to reset the CAN adapter.

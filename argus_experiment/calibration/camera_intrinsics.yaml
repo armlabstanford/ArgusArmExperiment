@@ -1,0 +1,48 @@
+# Argus VIO calibration — converted from Kalibr output for cam0.
+# Source: user-provided Kalibr cam0 (pinhole + equidistant/KB4 fisheye).
+#
+# hand_eye_calibration.py reads only the `camera:` block below.
+# The IMU / extrinsic / filter sections are kept for the VIO pipeline.
+
+camera:
+  width: 640
+  height: 480
+  # Kalibr intrinsics: [fx, fy, cx, cy]
+  fx: 546.842667112277
+  fy: 546.6354663821492
+  cx: 320.127046577085
+  cy: 233.43555608744313
+  # Equidistant / fisheye (Kalibr "distortion_model: equidistant" == OpenCV
+  # cv::fisheye, 4 coefficients [k1, k2, k3, k4]). Trailing 0 is ignored.
+  distortion_model: equidistant
+  distortion: [0.3612064721561653, 0.3033569768791478,
+               -0.6925712514060952, 0.7187473152347991, 0.0]
+
+# IMU noise — REPLACE with your own allan_variance_ros / datasheet values.
+imu:
+  gyro_noise: 1.7e-4
+  accel_noise: 2.0e-3
+  gyro_bias_walk: 1.9e-5
+  accel_bias_walk: 3.0e-3
+
+# Extrinsic — derived from Kalibr's T_cam_imu by inverting:
+extrinsic:
+  q_ic: [0.005236384449639653,
+         0.000549354654845824,
+         0.9999063896925049,
+        -0.012628948470055783]
+  p_ic: [ 0.030625561457974067,
+         -0.003319184848341675,
+         -0.011001491862083120]
+
+# Kalibr timestamp offset:  t_imu = t_cam + timeshift_cam_imu
+# Argus applies this to the image header.stamp before fusing with IMU.
+timeshift_cam_imu: -0.037653938261411654
+
+filter:
+  max_clones: 15
+  # Pixel noise in normalized image plane. With fx~547, 1 px => 1/547 ≈ 0.00183.
+  pixel_noise_norm: 0.005
+  min_obs_for_update: 5
+
+gravity: [0.0, 0.0, -9.81]

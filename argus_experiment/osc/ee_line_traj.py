@@ -38,6 +38,7 @@ from i2rt.robots.utils import ArmType, GripperType
 
 
 N_ARM = 6  # YAM always has 6 arm joints
+ARGUS_MASS = 0.178
 
 # Canonical trajectory-start configuration (6D arm joints), in radians.
 # This is the pose the line trajectory is launched from (a well-conditioned,
@@ -239,6 +240,7 @@ def main() -> None:
         arm_type=arm,
         gripper_type=GripperType.from_string_name("no_gripper"),
         sim=args.sim,
+        ee_mass=ARGUS_MASS, 
     )
 
     viewer = make_sim_viewer(robot) if (args.sim and not args.no_view) else None
