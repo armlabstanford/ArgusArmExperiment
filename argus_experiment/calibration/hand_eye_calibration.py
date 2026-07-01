@@ -140,6 +140,7 @@ def run(args) -> None:
         gripper_type=GripperType.from_string_name("no_gripper"),
         sim=args.sim,
         zero_gravity_mode=True,  # compliant: gravity-comp with zero stiffness
+        ee_mass=0.178,
     )
     kin = Kinematics(robot.xml_path, args.site)
     time.sleep(0.5)
