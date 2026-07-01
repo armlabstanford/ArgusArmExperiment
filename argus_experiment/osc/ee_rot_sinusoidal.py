@@ -11,6 +11,7 @@ The sinusoid is: angle(t) = AMPLITUDE * sin(2π * t / T)
 Usage:
     # Simulation — roll axis (default)
     python argus_experiment/osc/ee_rot_sinusoidal.py --sim
+    python argus_experiment/osc/ee_rot_sinusoidal.py --sim --camera
 
     # Pitch axis, faster
     python argus_experiment/osc/ee_rot_sinusoidal.py --sim --axis pitch --ang-velocity 0.5
@@ -30,11 +31,16 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "robots_realtime" / "dependencies" / "i2rt"))
+_REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO / "robots_realtime" / "dependencies" / "i2rt"))
+sys.path.insert(0, str(_REPO / "argus_experiment" / "calibration"))
 
+from camera_frame import add_camera_site, load_handeye
 from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.kinematics import Kinematics
 from i2rt.robots.utils import ArmType, GripperType
+
+DEFAULT_HANDEYE = _REPO / "argus_experiment" / "calibration" / "hand_eye_result.yaml"
 
 
 N_ARM = 6
@@ -49,7 +55,7 @@ TRAJ_START_QPOS = np.array([
     -0.1036,  # [5] Wrist 3
 ])
 
-AMPLITUDE   = 0.7854    # rad — ±π/4 (45 deg) peak excursion
+AMPLITUDE   = 0.5236    # rad -- peak excursion
 N_PERIODS   = 2
 START_TOL   = 0.05      # rad
 START_MOVE_TIME = 3.0   # s
@@ -275,6 +281,10 @@ def main() -> None:
     parser.add_argument("--sim", action="store_true")
     parser.add_argument("--no-view", action="store_true", help="Run sim headless (no viewer)")
     parser.add_argument("--site", default="grasp_site")
+    parser.add_argument("--camera", action="store_true",
+                        help="Rotate about the link_6-mounted camera (injects camera_site from hand-eye result)")
+    parser.add_argument("--handeye", default=str(DEFAULT_HANDEYE),
+                        help="Path to hand_eye_result.yaml (used with --camera)")
 
     parser.add_argument("--axis", choices=list(_AXES.keys()), default="roll",
                         help="Body-frame rotation axis (roll=X, pitch=Y, yaw=Z); default roll")
@@ -297,10 +307,21 @@ def main() -> None:
         ee_mass=ARGUS_MASS,
     )
 
+    # With --camera, inject a camera_site under link_6 from the hand-eye result
+    # and rotate about the camera frame instead of the grasp_site.
+    if args.camera:
+        X = load_handeye(args.handeye)
+        xml_path = add_camera_site(robot.xml_path, X)
+        site = "camera_site"
+        print(f"Rotating about CAMERA frame (camera_site from {args.handeye})")
+    else:
+        xml_path = robot.xml_path
+        site = args.site
+
     viewer = make_sim_viewer(robot) if (args.sim and not args.no_view) else None
 
     try:
-        run(robot, robot.xml_path, args.site,
+        run(robot, xml_path, site,
             axis_name=args.axis,
             ang_velocity=args.ang_velocity,
             n_periods=args.periods,

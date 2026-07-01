@@ -22,7 +22,7 @@ printed on its side).
 
 Usage:
     python argus_experiment/calibration/hand_eye_calibration.py \
-        --channel can0 --device /dev/video-zed2i \
+        --channel can0 --device /dev/video0 \
         --cols 10 --rows 7 --square 0.036
 """
 
@@ -46,10 +46,9 @@ from robots_realtime.sensors.cameras.opencv_camera import OpencvCamera
 
 N_ARM = 6
 
-# grasp_site pose relative to link_6, read straight from yam.xml:
-#   <site name="grasp_site" pos="0 0 0.1347" quat="1 0 0 -1"/>
-_GRASP_POS_IN_L6 = np.array([0.0, 0.0, 0.1347])
-_GRASP_QUAT_IN_L6 = np.array([1.0, 0.0, 0.0, -1.0])  # wxyz (unnormalised)
+# The camera module is always used with no_gripper, whose grasp_site sits at
+# pos "0 0 0" quat "0 1 0 0" relative to link_6. Rather than hardcode it, the
+# link_6-referenced camera_site is composed from the live model at solve time.
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +223,15 @@ def run(args) -> None:
     print(f"\nUsing method '{args.method}' as primary result.")
 
     # Compose to a link_6-referenced transform for a MuJoCo camera_site.
-    T_l6_grasp = make_SE3(wxyz_to_R(_GRASP_QUAT_IN_L6), _GRASP_POS_IN_L6)
+    # Read the reference site's actual pose from the live (combined) model so
+    # this is correct for whatever build was used (no_gripper for the camera).
+    import xml.etree.ElementTree as ET
+    _link6 = ET.parse(robot.xml_path).getroot().find(".//body[@name='link_6']")
+    _s = next(s for s in _link6.findall("site") if s.get("name") == args.site)
+    T_l6_grasp = make_SE3(
+        wxyz_to_R(np.array([float(v) for v in _s.get("quat", "1 0 0 0").split()])),
+        np.array([float(v) for v in _s.get("pos", "0 0 0").split()]),
+    )
     T_l6_cam = T_l6_grasp @ X
     site_pos = T_l6_cam[:3, 3]
     site_quat = R_to_wxyz(T_l6_cam[:3, :3])
