@@ -40,7 +40,7 @@ from i2rt.robots.utils import ArmType, GripperType
 
 
 N_ARM = 6  # YAM always has 6 arm joints
-ARGUS_MASS = 0.178
+ARGUS_MASS = 0.731219  # 0.178 camera+mount + 0.553219 linear_4310 body (fingers removed)
 
 # Canonical trajectory-start configuration (6D arm joints), in radians.
 # Well-conditioned, non-singular launch pose; distinct from "home" (the

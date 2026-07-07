@@ -40,7 +40,7 @@ from i2rt.robots.utils import ArmType, GripperType
 
 
 N_ARM = 6
-ARGUS_MASS = 0.178
+ARGUS_MASS = 0.731219  # 0.178 camera+mount + 0.553219 linear_4310 body (fingers removed)
 
 TRAJ_START_QPOS = np.array([
     +0.0883,  # [0] Shoulder Pan
