@@ -6,7 +6,7 @@ Lifecycle:
   centered on that EE orientation -> return to recorded home.
 
 The sinusoid is: angle(t) = AMPLITUDE * sin(2π * t / T)
-  where T = 2π * AMPLITUDE / ang_velocity  (so peak angular speed = --ang-velocity).
+  where T = 2π * AMPLITUDE / ang_velocity  (so peak angular speed = --ang_velocity).
 
 Usage:
     # Simulation — roll axis (default)
@@ -14,7 +14,7 @@ Usage:
     python argus_experiment/osc/ee_rot_sinusoidal.py --sim --camera
 
     # Pitch axis, faster
-    python argus_experiment/osc/ee_rot_sinusoidal.py --sim --axis pitch --ang-velocity 0.5
+    python argus_experiment/osc/ee_rot_sinusoidal.py --sim --axis pitch --ang_velocity 0.5
 
     # Yaw on hardware, 3 periods
     python argus_experiment/osc/ee_rot_sinusoidal.py --channel can0 --axis yaw --periods 3
@@ -288,7 +288,7 @@ def main() -> None:
 
     parser.add_argument("--axis", choices=list(_AXES.keys()), default="roll",
                         help="Body-frame rotation axis (roll=X, pitch=Y, yaw=Z); default roll")
-    parser.add_argument("--ang-velocity", type=float, default=0.2,
+    parser.add_argument("--ang_velocity", type=float, default=0.2,
                         help="Peak angular speed (rad/s); default 0.2")
     parser.add_argument("--periods", type=int, default=N_PERIODS,
                         help=f"Number of sinusoidal periods; default {N_PERIODS}")
@@ -296,7 +296,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.ang_velocity <= 0:
-        parser.error("--ang-velocity must be positive")
+        parser.error("--ang_velocity must be positive")
 
     arm = ArmType.from_string_name(args.arm)
     robot = get_yam_robot(
