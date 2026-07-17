@@ -31,10 +31,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "robots_realtime" / "dependencies" / "i2rt"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "argus_experiment" / "calibration"))
 
 from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.kinematics import Kinematics
 from i2rt.robots.utils import ArmType, GripperType
+from camera_frame import add_camera_cli_args, resolve_motion_frame
 
 
 N_ARM = 6
@@ -262,6 +264,7 @@ def main() -> None:
     parser.add_argument("--periods", type=int, default=N_PERIODS,
                         help=f"Number of sinusoidal periods; default {N_PERIODS}")
     parser.add_argument("--dt", type=float, default=0.02, help="Control timestep (s)")
+    add_camera_cli_args(parser)
     args = parser.parse_args()
 
     direction = np.array(args.direction, dtype=float)
@@ -279,10 +282,12 @@ def main() -> None:
         ee_mass=ARGUS_MASS,
     )
 
+    xml_path, site = resolve_motion_frame(robot, args)
+
     viewer = make_sim_viewer(robot) if (args.sim and not args.no_view) else None
 
     try:
-        run(robot, robot.xml_path, args.site,
+        run(robot, xml_path, site,
             direction=direction,
             velocity=args.velocity,
             n_periods=args.periods,

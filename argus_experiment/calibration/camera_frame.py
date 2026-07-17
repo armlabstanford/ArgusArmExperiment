@@ -91,6 +91,37 @@ def add_camera_site(xml_path, X, ref_site="grasp_site", site_name="camera_site")
     return out
 
 
+# ---------------------------------------------------------------------------
+# CLI plumbing shared by the ee_* motion scripts
+# ---------------------------------------------------------------------------
+DEFAULT_HANDEYE = Path(__file__).resolve().parent / "hand_eye_result.yaml"
+
+
+def add_camera_cli_args(parser) -> None:
+    """Add --camera / --handeye flags to an ee_* motion script's argparse parser."""
+    parser.add_argument("--camera", action="store_true",
+                        help="Run the trajectory in the link_6 camera frame "
+                             "(injects camera_site from the hand-eye result)")
+    parser.add_argument("--handeye", default=str(DEFAULT_HANDEYE),
+                        help="Path to hand_eye_result.yaml (used with --camera)")
+
+
+def resolve_motion_frame(robot, args, fallback_site="grasp_site"):
+    """
+    Return (xml_path, site) for a motion script.
+
+    With --camera: inject camera_site under link_6 from the hand-eye result and
+    target it, so the trajectory runs in the camera frame. Otherwise use the
+    plain model and args.site (or fallback_site).
+    """
+    if getattr(args, "camera", False):
+        X = load_handeye(args.handeye)
+        xml_path = add_camera_site(robot.xml_path, X)
+        print(f"Using CAMERA frame (camera_site from {args.handeye})")
+        return xml_path, "camera_site"
+    return robot.xml_path, getattr(args, "site", fallback_site)
+
+
 if __name__ == "__main__":
     # Quick check against the current YAM no_gripper model + saved result.
     import sys

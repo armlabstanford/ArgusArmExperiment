@@ -20,10 +20,12 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "robots_realtime" / "dependencies" / "i2rt"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "argus_experiment" / "calibration"))
 
 from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.kinematics import Kinematics
 from i2rt.robots.utils import ArmType, GripperType
+from camera_frame import add_camera_cli_args, resolve_motion_frame
 
 
 N_ARM = 6  # YAM always has 6 arm joints
@@ -163,6 +165,7 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=50, help="Waypoints per leg of the motion")
     parser.add_argument("--site", type=str, default="grasp_site", help="EE site name")
     parser.add_argument("--no-view", action="store_true", help="Run sim headless (no viewer window)")
+    add_camera_cli_args(parser)
     args = parser.parse_args()
 
     arm = ArmType.from_string_name(args.arm)
@@ -174,10 +177,12 @@ def main() -> None:
         sim=args.sim,
     )
 
+    xml_path, site = resolve_motion_frame(robot, args)
+
     viewer = make_sim_viewer(robot) if (args.sim and not args.no_view) else None
 
     try:
-        run(robot, robot.xml_path, args.site, args.distance, args.steps, args.dt, viewer=viewer)
+        run(robot, xml_path, site, args.distance, args.steps, args.dt, viewer=viewer)
 
         if viewer is not None:
             print("Sim done — close the viewer window to exit.")

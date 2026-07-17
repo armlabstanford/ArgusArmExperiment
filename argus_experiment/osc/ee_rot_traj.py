@@ -33,10 +33,12 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "robots_realtime" / "dependencies" / "i2rt"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "argus_experiment" / "calibration"))
 
 from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.kinematics import Kinematics
 from i2rt.robots.utils import ArmType, GripperType
+from camera_frame import add_camera_cli_args, resolve_motion_frame
 
 
 N_ARM = 6  # YAM always has 6 arm joints
@@ -261,6 +263,7 @@ def main() -> None:
     parser.add_argument("--dt", type=float, default=0.02, help="Control timestep (s)")
     parser.add_argument("--hold", type=float, default=0.0, help="Hold time at target (s)")
     parser.add_argument("--no-return", action="store_true", help="Do not reverse the rotation")
+    add_camera_cli_args(parser)
     args = parser.parse_args()
 
     if args.ang_velocity <= 0:
@@ -276,11 +279,13 @@ def main() -> None:
         ee_mass=ARGUS_MASS,
     )
 
+    xml_path, site = resolve_motion_frame(robot, args)
+
     viewer = make_sim_viewer(robot) if (args.sim and not args.no_view) else None
 
     try:
         run(
-            robot, robot.xml_path, args.site,
+            robot, xml_path, site,
             axis_name=args.axis,
             total_angle=args.angle,
             ang_velocity=args.ang_velocity,
