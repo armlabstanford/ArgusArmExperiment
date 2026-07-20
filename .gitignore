@@ -4,6 +4,8 @@ __pycache__/
 *.egg-info/
 .ruff_cache/
 .vscode/
+bags/
+debug.png
 
 argus_experiment/trajectories/recordings/traj_*/
 !argus_experiment/trajectories/recordings/.gitkeep
