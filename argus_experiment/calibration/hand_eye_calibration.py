@@ -168,9 +168,9 @@ def run(args) -> None:
                     lst.pop()
                 print("  undid last capture.")
             continue
-
         rgb = flush_and_grab()
         gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+
         found, corners = cv2.findChessboardCorners(
             gray, pattern, cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE)
         if not found:
@@ -215,7 +215,7 @@ def run(args) -> None:
     for name, m in methods.items():
         R_x, t_x = cv2.calibrateHandEye(R_g2b, t_g2b, R_t2c, t_t2c, method=m)
         results[name] = make_SE3(R_x, t_x)
-        rpy = np.degrees(cv2.RQDecomp3x3(R_x)[0])
+        rpy = cv2.RQDecomp3x3(R_x)[0] 
         print(f"  {name:11s} t={t_x.ravel().round(4)}  rpy_deg={rpy.round(2)}")
 
     # Primary = PARK (jointly solves R,t; robust general choice).
