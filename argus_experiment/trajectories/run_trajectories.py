@@ -159,9 +159,9 @@ class Recorder:
         self.traj_idx.append(traj_idx)
         self.phase.append(phase)
 
-    def save(self, path, queue, periods, dt) -> None:
+    def save(self, npz_path, queue, periods, dt) -> None:
         np.savez(
-            path,
+            npz_path,
             t=np.array(self.t),                                   # (N,)   seconds from run start
             q=np.array(self.q),                                   # (N, 6) measured joint positions
             qdot=np.array(self.qdot),                             # (N, 6) measured joint velocities
@@ -175,6 +175,34 @@ class Recorder:
             traj_speed=np.array([c.speed for c in queue], float),  # (K,)
             periods=periods, dt=dt, argus_mass=ARGUS_MASS,
         )
+
+
+def write_description(txt_path, queue, args, npz_name: str) -> None:
+    """Human-readable summary of the queue that produced the accompanying npz."""
+    lines = [
+        "Trajectory Queue Recording",
+        "=" * 27,
+        f"Timestamp   : {datetime.now():%Y-%m-%d %H:%M:%S}",
+        f"Mode        : {'sim' if args.sim else 'hardware'} (arm=yam, channel=can0)",
+        f"Periods     : {args.periods}",
+        f"Control dt  : {args.dt} s",
+        f"Hand-eye    : {args.handeye}",
+        f"ARGUS_MASS  : {ARGUS_MASS} kg",
+        f"Data file   : {npz_name}",
+        "",
+        f"Queue ({len(queue)} commands, run in order):",
+    ]
+    for i, cmd in enumerate(queue):
+        unit = "m/s" if cmd.motion == "linear" else "rad/s"
+        lines.append(f"  [{i}] {cmd.wave:10s} {cmd.motion:8s} axis={cmd.axis:6s} speed={cmd.speed} {unit}")
+    lines += [
+        "",
+        "npz keys: t, q, qdot, cam_pos, cam_quat, traj_idx, phase,",
+        "          traj_wave, traj_motion, traj_axis, traj_speed, periods, dt, argus_mass",
+        "  traj_idx indexes into the queue above (0-based).",
+        "  phase is one of: to_start | ramp | trajectory | to_home | hold",
+    ]
+    Path(txt_path).write_text("\n".join(lines) + "\n")
 
 
 def move_to_qpos(robot, target_q, dt, viewer=None, move_time=START_MOVE_TIME,
@@ -439,7 +467,8 @@ def main() -> None:
     parser.add_argument("--handeye", default=str(DEFAULT_HANDEYE),
                         help="hand_eye_result.yaml for the recorded camera pose")
     parser.add_argument("--out", default=None,
-                        help="Output npz path (default: recordings/traj_<timestamp>.npz)")
+                        help="Output directory for this run's data + description.txt "
+                             "(default: recordings/traj_<timestamp>/)")
     args = parser.parse_args()
 
     # Camera transform X = T_ee_cam for the recorded camera pose. If unavailable,
@@ -479,13 +508,17 @@ def main() -> None:
                 time.sleep(0.05)
     finally:
         if args.out is not None:
-            out = Path(args.out)
+            out_dir = Path(args.out)
         else:
-            DEFAULT_OUT_DIR.mkdir(parents=True, exist_ok=True)
-            out = DEFAULT_OUT_DIR / f"traj_{datetime.now():%Y%m%d_%H%M%S}.npz"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        recorder.save(out, args.queue, args.periods, args.dt)
-        print(f"Recorded {len(recorder.t)} samples -> {out}")
+            out_dir = DEFAULT_OUT_DIR / f"traj_{datetime.now():%Y%m%d_%H%M%S}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        npz_path = out_dir / "trajectory_data.npz"
+        txt_path = out_dir / "trajectories.txt"
+        recorder.save(npz_path, args.queue, args.periods, args.dt)
+        write_description(txt_path, args.queue, args, npz_path.name)
+        print(f"Recorded {len(recorder.t)} samples -> {out_dir}/")
+        print(f"  {npz_path.name}, {txt_path.name}")
         if viewer is not None:
             viewer.close()
         robot.close()

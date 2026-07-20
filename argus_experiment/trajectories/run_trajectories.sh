@@ -19,6 +19,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# demo movements, will eventually load full sequence
 python "$SCRIPT_DIR/run_trajectories.py" \
     --traj sinusoidal:linear:x:0.5 \
     --traj sawtooth:linear:z:0.05 \

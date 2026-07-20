@@ -5,5 +5,5 @@ __pycache__/
 .ruff_cache/
 .vscode/
 
-argus_experiment/trajectories/recordings/*.npz
+argus_experiment/trajectories/recordings/traj_*/
 !argus_experiment/trajectories/recordings/.gitkeep
