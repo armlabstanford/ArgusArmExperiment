@@ -70,13 +70,22 @@ class TrajectoryCommand:
 N_ARM = 6
 ARGUS_MASS = 0.731219  # 0.178 camera+mount + 0.553219 linear_4310 body (fingers removed)
 
+# TRAJ_START_QPOS = np.array([
+#     +0.0883,  # [0] Shoulder Pan
+#     +0.5694,  # [1] Shoulder Pitch
+#     +0.5758,  # [2] Elbow
+#     +0.0090,  # [3] Wrist 1
+#     +0.1844,  # [4] Wrist 2
+#     -0.1036,  # [5] Wrist 3
+# ])
+
 TRAJ_START_QPOS = np.array([
-    +0.0883,  # [0] Shoulder Pan
-    +0.5694,  # [1] Shoulder Pitch
-    +0.5758,  # [2] Elbow
-    +0.0090,  # [3] Wrist 1
-    +0.1844,  # [4] Wrist 2
-    -0.1036,  # [5] Wrist 3
+    +1.6268,  # [0] Shoulder Pan
+    +0.5804,  # [1] Shoulder Pitch
+    +1.1751,  # [2] Elbow
+    -0.5827,  # [3] Wrist 1
+    +0.0463,  # [4] Wrist 2
+    +0.0757,  # [5] Wrist 3
 ])
 
 LINEAR_AMPLITUDE  = 0.1       # m   — half peak-to-peak (matches ee_linear_*)

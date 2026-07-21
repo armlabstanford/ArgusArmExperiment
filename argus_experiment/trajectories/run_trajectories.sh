@@ -10,19 +10,25 @@
 #   SPEED  : peak for sinusoidal, constant for sawtooth
 #
 # Extra flags (--sim, --periods N, --dt S) are forwarded via "$@", e.g.:
-#     bash run_trajectories.sh --sim --periods 3 --dt 0.01
+#     bash argus_experiment/trajectories/run_trajectories.sh --sim --periods 3 --dt 0.01
 # 
 # Before EVERY new trajectory sequence, test in sim
-#     bash run_trajectories.sh --sim
+#     bash argus_experiment/trajectories/run_trajectories.sh --sim
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # demo movements, will eventually load full sequence
+# python "$SCRIPT_DIR/run_trajectories.py" \
+#     --traj sinusoidal:linear:x:0.5 \
+#     --traj sawtooth:linear:z:0.05 \
+#     --traj sinusoidal:angular:yaw:0.1 \
+#     --traj sawtooth:angular:roll:0.2 \
+#     "$@"
+
+
 python "$SCRIPT_DIR/run_trajectories.py" \
-    --traj sinusoidal:linear:x:0.5 \
     --traj sawtooth:linear:z:0.05 \
-    --traj sinusoidal:angular:yaw:0.2 \
     --traj sawtooth:angular:roll:0.2 \
     "$@"
