@@ -11,19 +11,21 @@ then holds briefly at home before starting the next command's cycle.
 
 Generalizes ee_linear_sinusoidal / ee_linear_sawtooth / ee_rot_sinusoidal /
 ee_rot_sawtooth. Arm is fixed to yam on channel can0. The queue is passed on
-the command line via repeated --traj WAVE:MOTION:AXIS:SPEED tokens.
+the command line via repeated --traj WAVE:MOTION:AXIS:SPEED tokens. A trial
+name (positional arg) titles the output data folder.
 
 Usage:
     # via the shell wrapper (edit the --traj lines there)
-    bash argus_experiment/trajectories/run_trajectories.sh --sim
+    bash argus_experiment/trajectories/run_trajectories.sh TRIAL_NAME --sim
 
     # or directly
-    python argus_experiment/trajectories/run_trajectories.py --sim \
+    python argus_experiment/trajectories/run_trajectories.py TRIAL_NAME --sim \
         --traj sinusoidal:linear:x:0.5 \
         --traj sawtooth:angular:roll:0.2
 """
 
 import argparse
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -186,11 +188,18 @@ class Recorder:
         )
 
 
+def sanitize_trial_name(name: str) -> str:
+    """Make a trial name filesystem-safe: spaces/slashes/etc -> underscore."""
+    safe = re.sub(r"[^\w\-]+", "_", name.strip()).strip("_")
+    return safe or "trial"
+
+
 def write_description(txt_path, queue, args, npz_name: str) -> None:
     """Human-readable summary of the queue that produced the accompanying npz."""
     lines = [
         "Trajectory Queue Recording",
         "=" * 27,
+        f"Trial name  : {args.trial_name}",
         f"Timestamp   : {datetime.now():%Y-%m-%d %H:%M:%S}",
         f"Mode        : {'sim' if args.sim else 'hardware'} (arm=yam, channel=can0)",
         f"Periods     : {args.periods}",
@@ -475,9 +484,10 @@ def main() -> None:
                              "runs in the order given.")
     parser.add_argument("--handeye", default=str(DEFAULT_HANDEYE),
                         help="hand_eye_result.yaml for the recorded camera pose")
+    parser.add_argument("trial_name", help="Trial name; titles the output data folder")
     parser.add_argument("--out", default=None,
                         help="Output directory for this run's data + description.txt "
-                             "(default: recordings/traj_<timestamp>/)")
+                             "(overrides the trial-name/timestamp default)")
     args = parser.parse_args()
 
     # Camera transform X = T_ee_cam for the recorded camera pose. If unavailable,
@@ -519,7 +529,7 @@ def main() -> None:
         if args.out is not None:
             out_dir = Path(args.out)
         else:
-            out_dir = DEFAULT_OUT_DIR / f"traj_{datetime.now():%Y%m%d_%H%M%S}"
+            out_dir = DEFAULT_OUT_DIR / f"{sanitize_trial_name(args.trial_name)}_{datetime.now():%Y%m%d_%H%M%S}"
         out_dir.mkdir(parents=True, exist_ok=True)
 
         npz_path = out_dir / "trajectory_data.npz"
