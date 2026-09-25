@@ -86,13 +86,19 @@ ARGUS_MASS = 0.731219  # 0.178 camera+mount + 0.553219 linear_4310 body (fingers
 #     -0.1036,  # [5] Wrist 3
 # ])
 
+# Previous start pose: [1.6268, 0.5804, 1.1751, -0.5827, 0.0463, 0.0757].
+# Its y stroke ran through a wrist singularity -- sigma_min(J) collapsed from
+# 0.026 to 5e-5 around y = -0.025 m and IK drove joint 4 past its yaml limit,
+# so ~8% of y waypoints failed to converge. This pose keeps sigma_min >= 0.039
+# across all six strokes with >= 0.65 rad of joint-limit margin; the camera sits
+# 9.4 cm away from the old start and rotated 25.6 deg.
 TRAJ_START_QPOS = np.array([
-    +1.6268,  # [0] Shoulder Pan
-    +0.5804,  # [1] Shoulder Pitch
-    +1.1751,  # [2] Elbow
-    -0.5827,  # [3] Wrist 1
-    +0.0463,  # [4] Wrist 2
-    +0.0757,  # [5] Wrist 3
+    +1.8188,  # [0] Shoulder Pan
+    +0.9233,  # [1] Shoulder Pitch
+    +1.2121,  # [2] Elbow
+    -0.3515,  # [3] Wrist 1
+    -0.0100,  # [4] Wrist 2
+    +0.4339,  # [5] Wrist 3
 ])
 
 LINEAR_AMPLITUDE  = 0.1       # m   — half peak-to-peak (matches ee_linear_*)
@@ -178,7 +184,7 @@ class Recorder:
         self.traj_idx.append(traj_idx)
         self.phase.append(phase)
 
-    def save(self, npz_path, queue, periods, dt) -> None:
+    def save(self, npz_path, queue, periods, dt, end_dwell=0.0, home_hold=HOME_HOLD_TIME) -> None:
         np.savez(
             npz_path,
             t=np.array(self.t),                                   # (N,)   seconds from run start
@@ -193,6 +199,8 @@ class Recorder:
             traj_axis=np.array([c.axis for c in queue]),          # (K,)
             traj_speed=np.array([c.speed for c in queue], float),  # (K,)
             periods=periods, dt=dt, argus_mass=ARGUS_MASS,
+            end_dwell=end_dwell,                                  # s, hold at each end of travel
+            home_hold=home_hold,                                  # s, hold at home between commands
         )
 
 
@@ -213,6 +221,8 @@ def write_description(txt_path, queue, args, npz_name: str) -> None:
         "Frame       : camera (camera_site, injected from hand-eye result)",
         f"Periods     : {args.periods}",
         f"Control dt  : {args.dt} s",
+        f"End dwell   : {args.end_dwell} s (hold at each end of travel)",
+        f"Home hold   : {args.home_hold} s (between queued trajectories)",
         f"Hand-eye    : {args.handeye}",
         f"ARGUS_MASS  : {ARGUS_MASS} kg",
         f"Data file   : {npz_name}",
@@ -225,7 +235,8 @@ def write_description(txt_path, queue, args, npz_name: str) -> None:
     lines += [
         "",
         "npz keys: t, q, qdot, cam_pos, cam_quat, traj_idx, phase,",
-        "          traj_wave, traj_motion, traj_axis, traj_speed, periods, dt, argus_mass",
+        "          traj_wave, traj_motion, traj_axis, traj_speed, periods, dt, argus_mass,",
+        "          end_dwell, home_hold",
         "  traj_idx indexes into the queue above (0-based).",
         "  phase is one of: to_start | ramp | trajectory | to_home | hold",
     ]
@@ -257,18 +268,45 @@ def move_to_qpos(robot, target_q, dt, viewer=None, move_time=START_MOVE_TIME,
 
 def execute_waypoints(robot, kin, ee_site, waypoints, init_q, dt, viewer=None,
                       recorder: Optional[Recorder] = None, traj_idx: int = -1, phase: str = "") -> np.ndarray:
-    """Warm-started IK tracking. Returns the last successful joint config."""
+    """Warm-started IK tracking. Returns the last successful joint config.
+
+    Paces off an absolute deadline instead of sleeping dt per step. IK + command +
+    recorder cost ~0.5-1 ms, and time.sleep(dt) would add that on top of every
+    step, so the arm would track slower than the commanded speed -- negligible at
+    dt=0.02 but ~30% low by dt=0.002. A step that overruns dt does not push the
+    following ones late; overruns are counted and reported instead, since they
+    mean the commanded speed was not actually achieved.
+    """
+    n_overrun = n_fail = 0
+    next_t = time.perf_counter() + dt
     for i, target_pose in enumerate(waypoints):
         ok, ik_q = kin.ik(target_pose, ee_site, init_q=init_q)
         if not ok:
+            n_fail += 1
+            # Hold the last good command, but still consume this step's time slot so
+            # an IK failure does not silently compress the trajectory timeline.
             print(f"    IK failed at waypoint {i}; holding last good solution")
-            continue
-        robot.command_joint_pos(ik_q[:N_ARM])
+        else:
+            robot.command_joint_pos(ik_q[:N_ARM])
+            init_q = ik_q[:N_ARM]
         _sync(viewer)
         if recorder is not None:
             recorder.sample(traj_idx, phase)
-        init_q = ik_q[:N_ARM]
-        time.sleep(dt)
+        slack = next_t - time.perf_counter()
+        if slack > 0:
+            time.sleep(slack)
+        else:
+            n_overrun += 1
+        next_t += dt
+    if n_overrun:
+        pct = 100.0 * n_overrun / max(1, len(waypoints))
+        # A failed IK solve runs to its iteration cap (~35 ms vs ~1 ms warm-started),
+        # so it blows the deadline on its own; that is a reachability problem, not a
+        # dt that is too small. Only point at dt when the loop is otherwise clean.
+        cause = (f"{n_fail} IK failure(s) stalled the loop -- the target is near a "
+                 f"kinematic limit" if n_fail else f"the loop cannot sustain dt={dt}s; increase --dt")
+        print(f"    WARNING: {n_overrun}/{len(waypoints)} steps ({pct:.0f}%) overran "
+              f"dt={dt}s; {cause}")
     return init_q
 
 
@@ -289,24 +327,34 @@ def build_linear_sinusoidal(center_pose, unit, amplitude, velocity, n_periods, d
     return waypoints
 
 
-def build_linear_sawtooth(center_pose, unit, amplitude, velocity, n_periods, dt) -> list[np.ndarray]:
-    """Triangle wave at constant velocity between −amplitude and +amplitude."""
+def build_linear_sawtooth(center_pose, unit, amplitude, velocity, n_periods, dt,
+                          end_dwell: float = 0.0) -> list[np.ndarray]:
+    """Triangle wave at constant velocity between −amplitude and +amplitude.
+
+    end_dwell (s) holds the arm at each edge before it reverses. The hold is emitted
+    as repeated edge waypoints so execute_waypoints keeps ticking at dt and the
+    recorder keeps sampling through the pause.
+    """
     n_leg = max(2, int(round(2 * amplitude / (velocity * dt))))
+    n_dwell = max(0, int(round(end_dwell / dt)))
     neg_edge = center_pose.copy(); neg_edge[:3, 3] -= unit * amplitude
     pos_edge = center_pose.copy(); pos_edge[:3, 3] += unit * amplitude
     waypoints = []
     for _ in range(n_periods):
+        waypoints += [neg_edge.copy() for _ in range(n_dwell)]
         for i in range(n_leg):
             alpha = i / n_leg
             wp = center_pose.copy()
             wp[:3, 3] = (1 - alpha) * neg_edge[:3, 3] + alpha * pos_edge[:3, 3]
             waypoints.append(wp)
+        waypoints += [pos_edge.copy() for _ in range(n_dwell)]
         for i in range(n_leg):
             alpha = i / n_leg
             wp = center_pose.copy()
             wp[:3, 3] = (1 - alpha) * pos_edge[:3, 3] + alpha * neg_edge[:3, 3]
             waypoints.append(wp)
     waypoints.append(neg_edge)
+    waypoints += [neg_edge.copy() for _ in range(n_dwell)]
     return waypoints
 
 
@@ -342,9 +390,14 @@ def build_angular_sinusoidal(center_pose, axis, amplitude, ang_velocity, n_perio
     return waypoints
 
 
-def build_angular_sawtooth(center_pose, axis, amplitude, ang_velocity, n_periods, dt) -> list[np.ndarray]:
-    """Triangle wave rotation at constant angular velocity; position held fixed."""
+def build_angular_sawtooth(center_pose, axis, amplitude, ang_velocity, n_periods, dt,
+                           end_dwell: float = 0.0) -> list[np.ndarray]:
+    """Triangle wave rotation at constant angular velocity; position held fixed.
+
+    end_dwell (s) holds at each angular edge, same scheme as build_linear_sawtooth.
+    """
     n_leg = max(2, int(round(2 * amplitude / (ang_velocity * dt))))
+    n_dwell = max(0, int(round(end_dwell / dt)))
     R_center, p_center = center_pose[:3, :3], center_pose[:3, 3]
 
     def wp_at(theta):
@@ -355,13 +408,16 @@ def build_angular_sawtooth(center_pose, axis, amplitude, ang_velocity, n_periods
 
     waypoints = []
     for _ in range(n_periods):
+        waypoints += [wp_at(-amplitude) for _ in range(n_dwell)]
         for i in range(n_leg):
             a = i / n_leg
             waypoints.append(wp_at((1 - a) * (-amplitude) + a * amplitude))
+        waypoints += [wp_at(amplitude) for _ in range(n_dwell)]
         for i in range(n_leg):
             a = i / n_leg
             waypoints.append(wp_at((1 - a) * amplitude + a * (-amplitude)))
     waypoints.append(wp_at(-amplitude))
+    waypoints += [wp_at(-amplitude) for _ in range(n_dwell)]
     return waypoints
 
 
@@ -383,7 +439,8 @@ def build_angular_ramp(center_pose, axis, amplitude, ang_velocity, dt, to: str) 
 # per-command cycle: home -> TRAJ_START_QPOS -> trajectory -> home (hold)
 # ---------------------------------------------------------------------------
 def run_command(robot, kin, ee_site, cmd: TrajectoryCommand, n_periods: int, dt: float,
-                viewer=None, recorder: Optional[Recorder] = None, traj_idx: int = -1) -> None:
+                viewer=None, recorder: Optional[Recorder] = None, traj_idx: int = -1,
+                end_dwell: float = 0.0, home_hold: float = HOME_HOLD_TIME) -> None:
     print(f"\n=== {cmd.wave} {cmd.motion}  axis={cmd.axis}  speed={cmd.speed} ===")
 
     home_q = robot.get_joint_pos()[:N_ARM].copy()
@@ -403,7 +460,8 @@ def run_command(robot, kin, ee_site, cmd: TrajectoryCommand, n_periods: int, dt:
             main_wps = build_linear_sinusoidal(center_pose, unit, LINEAR_AMPLITUDE, cmd.speed, n_periods, dt)
         else:
             ramp = build_linear_ramp(center_pose, unit, LINEAR_AMPLITUDE, cmd.speed, dt, to="neg")
-            main_wps = build_linear_sawtooth(center_pose, unit, LINEAR_AMPLITUDE, cmd.speed, n_periods, dt)
+            main_wps = build_linear_sawtooth(center_pose, unit, LINEAR_AMPLITUDE, cmd.speed, n_periods, dt,
+                                             end_dwell=end_dwell)
     elif cmd.motion == "angular":
         if cmd.axis not in ANGULAR_AXES:
             raise ValueError(f"angular axis must be one of {ANGULAR_AXES}, got {cmd.axis!r}")
@@ -413,7 +471,8 @@ def run_command(robot, kin, ee_site, cmd: TrajectoryCommand, n_periods: int, dt:
             main_wps = build_angular_sinusoidal(center_pose, axis, ANGULAR_AMPLITUDE, cmd.speed, n_periods, dt)
         else:
             ramp = build_angular_ramp(center_pose, axis, ANGULAR_AMPLITUDE, cmd.speed, dt, to="neg")
-            main_wps = build_angular_sawtooth(center_pose, axis, ANGULAR_AMPLITUDE, cmd.speed, n_periods, dt)
+            main_wps = build_angular_sawtooth(center_pose, axis, ANGULAR_AMPLITUDE, cmd.speed, n_periods, dt,
+                                              end_dwell=end_dwell)
     else:
         raise ValueError(f"motion must be 'linear' or 'angular', got {cmd.motion!r}")
 
@@ -429,8 +488,8 @@ def run_command(robot, kin, ee_site, cmd: TrajectoryCommand, n_periods: int, dt:
     print(f"  Returning to home: {home_q.round(4)} ...")
     move_to_qpos(robot, home_q, dt, viewer=viewer, label="home",
                  recorder=recorder, traj_idx=traj_idx, phase="to_home")
-    print(f"  At home. Holding {HOME_HOLD_TIME:.1f}s ...")
-    for _ in range(max(1, int(round(HOME_HOLD_TIME / dt)))):
+    print(f"  At home. Holding {home_hold:.1f}s ...")
+    for _ in range(max(1, int(round(home_hold / dt)))):
         _sync(viewer)
         if recorder is not None:
             recorder.sample(traj_idx, "hold")
@@ -487,6 +546,12 @@ def main() -> None:
     parser.add_argument("--periods", type=int, default=N_PERIODS,
                         help=f"Number of sinusoidal periods; default {N_PERIODS}")
     parser.add_argument("--dt", type=float, default=0.02, help="Control timestep (s)")
+    parser.add_argument("--end-dwell", type=float, default=0.0, dest="end_dwell",
+                        help="Seconds to hold at each end of travel before reversing "
+                             "(sawtooth only); default 0 = no pause")
+    parser.add_argument("--home-hold", type=float, default=HOME_HOLD_TIME, dest="home_hold",
+                        help=f"Seconds to hold at home between queued trajectories; "
+                             f"default {HOME_HOLD_TIME}")
     parser.add_argument("--traj", action="append", dest="queue", type=parse_traj_command,
                         required=True, metavar="WAVE:MOTION:AXIS:SPEED",
                         help="Trajectory command, e.g. sinusoidal:linear:x:0.5 . Repeatable; "
@@ -530,7 +595,8 @@ def main() -> None:
         for i, cmd in enumerate(args.queue):
             print(f"\n--- Queue item {i + 1}/{len(args.queue)} ---")
             run_command(robot, kin, site, cmd, args.periods, args.dt,
-                        viewer=viewer, recorder=recorder, traj_idx=i)
+                        viewer=viewer, recorder=recorder, traj_idx=i,
+                        end_dwell=args.end_dwell, home_hold=args.home_hold)
         print("\nQueue complete.")
 
         if viewer is not None:
@@ -547,7 +613,8 @@ def main() -> None:
 
         npz_path = out_dir / "trajectory_data.npz"
         txt_path = out_dir / "trajectories.txt"
-        recorder.save(npz_path, args.queue, args.periods, args.dt)
+        recorder.save(npz_path, args.queue, args.periods, args.dt,
+                      end_dwell=args.end_dwell, home_hold=args.home_hold)
         write_description(txt_path, args.queue, args, npz_path.name)
         print(f"Recorded {len(recorder.t)} samples -> {out_dir}/")
         print(f"  {npz_path.name}, {txt_path.name}")

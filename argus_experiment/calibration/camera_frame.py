@@ -45,11 +45,57 @@ def _se3(R, t):
     T = np.eye(4); T[:3, :3] = R; T[:3, 3] = np.asarray(t).ravel(); return T
 
 
-def load_handeye(path) -> np.ndarray:
-    """Load X = T_ee_cam (4x4) from a hand_eye_result.yaml."""
+def _optimal_roll_snap(R: np.ndarray) -> float:
+    """
+    Find the angle theta (rad) such that right-multiplying R by a rotation
+    about R's own local Z axis (Rz(theta)) best snaps R's X/Y columns onto the
+    nearest axis-aligned directions ([+-1,0,0]/[0,+-1,0]/[0,0,+-1]). Leaves the
+    Z column (boresight) exactly unchanged. Coarse 0.1-deg grid search.
+    """
+    ref_axes = [np.array(v, float) for v in
+                ((1, 0, 0), (0, 1, 0), (0, 0, 1), (-1, 0, 0), (0, -1, 0), (0, 0, -1))]
+
+    def best_axis_dot(v):
+        return max(np.dot(v, a) for a in ref_axes)
+
+    thetas = np.linspace(-np.pi, np.pi, 3601)  # 0.1 deg resolution
+    x0, y0 = R[:, 0], R[:, 1]
+    cos_t, sin_t = np.cos(thetas), np.sin(thetas)
+    xs = np.outer(cos_t, x0) + np.outer(sin_t, y0)
+    ys = np.outer(-sin_t, x0) + np.outer(cos_t, y0)
+    costs = np.array([best_axis_dot(x) + best_axis_dot(y) for x, y in zip(xs, ys)])
+    return thetas[np.argmax(costs)]
+
+
+def _apply_roll_snap(X: np.ndarray) -> np.ndarray:
+    """Correct a mount-induced twist about the camera's boresight (Z) axis.
+
+    Real mounts (e.g. a diagonal bolt-hole pattern) can leave the calibrated
+    camera X/Y (roll/pitch) axes rotated a fixed, non-zero angle about the lens
+    boresight relative to the gripper's own axes, even though the boresight
+    itself lines up cleanly with an arm axis. This snaps X/Y to the nearest
+    orthogonal directions while leaving Z (boresight) and translation untouched.
+    """
+    theta = _optimal_roll_snap(X[:3, :3])
+    c, s = np.cos(theta), np.sin(theta)
+    Rz = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+    X_corrected = X.copy()
+    X_corrected[:3, :3] = X[:3, :3] @ Rz
+    return X_corrected
+
+
+def load_handeye(path, snap_roll_axis: bool = True) -> np.ndarray:
+    """Load X = T_ee_cam (4x4) from a hand_eye_result.yaml.
+
+    By default, snaps the camera's roll/pitch (X/Y) axes to the nearest
+    orthogonal directions of the reference (grasp_site) frame, correcting for
+    a fixed mount-induced twist about the boresight — see _apply_roll_snap.
+    Pass snap_roll_axis=False for the raw fitted calibration.
+    """
     with open(path) as f:
         doc = yaml.safe_load(f)
-    return np.array(doc["T_ee_cam"]["matrix"], dtype=float)
+    X = np.array(doc["T_ee_cam"]["matrix"], dtype=float)
+    return _apply_roll_snap(X) if snap_roll_axis else X
 
 
 def _read_site_pose(link6: ET.Element, site_name: str) -> np.ndarray:

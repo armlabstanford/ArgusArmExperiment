@@ -33,17 +33,17 @@ shift
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # demo movements, will eventually load full sequence
-# python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
-#     --traj sawtooth:linear:x:0.1 \
-#     --traj sawtooth:linear:z:0.1 \
-#     "$@"
-
-
 python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
-    --traj sawtooth:angular:yaw:0.2 \
-    --traj sawtooth:angular:pitch:0.2 \
-    --traj sawtooth:angular:roll:0.2 \
+    --traj sawtooth:linear:y:0.1 \
+    --traj sawtooth:linear:z:0.1 \
     "$@"
+
+
+# python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
+#     --traj sawtooth:angular:yaw:0.2 \
+#     --traj sawtooth:angular:pitch:0.2 \
+#     --traj sawtooth:angular:roll:0.2 \
+#     "$@"
 
 # python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
 #     --traj sinusoidal:angular:roll:0.2 \
