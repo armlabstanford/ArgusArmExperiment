@@ -13,8 +13,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VELOCITY=0.2
 DT=0.02
 PERIODS=10
-END_DWELL=5
-HOME_HOLD=20
+END_DWELL=2
+HOME_HOLD=5
 
 python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
     --traj "sawtooth:angular:roll:$VELOCITY" \

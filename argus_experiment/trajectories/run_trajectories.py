@@ -310,6 +310,24 @@ def execute_waypoints(robot, kin, ee_site, waypoints, init_q, dt, viewer=None,
     return init_q
 
 
+def hold_still(duration, dt, viewer=None, recorder: Optional[Recorder] = None,
+               traj_idx: int = -1, phase: str = "hold") -> None:
+    """Command nothing new for `duration` s, sampling the recorder every dt.
+
+    Paced off an absolute deadline like execute_waypoints, so per-sample cost
+    does not stretch the hold at small dt.
+    """
+    next_t = time.perf_counter() + dt
+    for _ in range(max(1, int(round(duration / dt)))):
+        _sync(viewer)
+        if recorder is not None:
+            recorder.sample(traj_idx, phase)
+        slack = next_t - time.perf_counter()
+        if slack > 0:
+            time.sleep(slack)
+        next_t += dt
+
+
 # ---------------------------------------------------------------------------
 # waypoint builders — linear (from ee_linear_sinusoidal / ee_linear_sawtooth)
 # ---------------------------------------------------------------------------
@@ -489,11 +507,7 @@ def run_command(robot, kin, ee_site, cmd: TrajectoryCommand, n_periods: int, dt:
     move_to_qpos(robot, home_q, dt, viewer=viewer, label="home",
                  recorder=recorder, traj_idx=traj_idx, phase="to_home")
     print(f"  At home. Holding {home_hold:.1f}s ...")
-    for _ in range(max(1, int(round(home_hold / dt)))):
-        _sync(viewer)
-        if recorder is not None:
-            recorder.sample(traj_idx, "hold")
-        time.sleep(dt)
+    hold_still(home_hold, dt, viewer=viewer, recorder=recorder, traj_idx=traj_idx, phase="hold")
 
 
 # ---------------------------------------------------------------------------

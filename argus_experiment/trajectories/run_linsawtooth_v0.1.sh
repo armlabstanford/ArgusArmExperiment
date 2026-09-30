@@ -7,11 +7,11 @@
 #
 # Per axis:
 #   home -> TRAJ_START_QPOS -> ramp to -edge -> 10 back-and-forth cycles,
-#   pausing 5 s at each end -> return home -> hold 20 s before the next axis.
+#   pausing 2 s at each end -> return home -> hold 5 s before the next axis.
 #
 # Timing (LINEAR_AMPLITUDE = 0.1 m, so 0.2 m peak-to-peak at 0.1 m/s = 2 s/leg):
-#   per axis  ~145 s of trajectory + ~8 s transit + 20 s home hold  = ~2.9 min
-#   all three ~9 min total
+#   per axis  ~83 s of trajectory + ~8 s transit + 5 s home hold  = ~1.6 min
+#   all three ~5 min total
 #
 # Usage:
 #     bash argus_experiment/trajectories/run_linsawtooth_v0.1.sh TRIAL_NAME [--sim] [--dt S]
@@ -33,8 +33,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VELOCITY=0.1    # m/s  — constant travel speed on every leg
 DT=0.02       # s    — control timestep
 PERIODS=10      # one period = one full back-and-forth
-END_DWELL=5     # s    — hold at each end of travel before reversing
-HOME_HOLD=20    # s    — hold at home between axes
+END_DWELL=2     # s    — hold at each end of travel before reversing
+HOME_HOLD=5     # s    — hold at home between axes
 
 python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
     --traj "sawtooth:linear:x:$VELOCITY" \
