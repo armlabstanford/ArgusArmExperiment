@@ -33,7 +33,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VELOCITY=0.1    # m/s  — constant travel speed on every leg
 DT=0.02       # s    — control timestep
 PERIODS=10      # one period = one full back-and-forth
-END_DWELL=2     # s    — hold at each end of travel before reversing
+END_DWELL=0.5     # s    — hold at each end of travel before reversing
 HOME_HOLD=5     # s    — hold at home between axes
 
 python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \

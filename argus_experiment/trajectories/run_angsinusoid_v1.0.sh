@@ -13,6 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VELOCITY=1.0
 DT=0.005
 PERIODS=10
+END_DWELL=1
 HOME_HOLD=5
 
 python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
@@ -21,5 +22,6 @@ python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
     --traj "sinusoidal:angular:yaw:$VELOCITY" \
     --periods "$PERIODS" \
     --dt "$DT" \
+    --end-dwell "$END_DWELL" \
     --home-hold "$HOME_HOLD" \
     "$@"

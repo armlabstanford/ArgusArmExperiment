@@ -328,19 +328,38 @@ def hold_still(duration, dt, viewer=None, recorder: Optional[Recorder] = None,
         next_t += dt
 
 
-# ---------------------------------------------------------------------------
-# waypoint builders — linear (from ee_linear_sinusoidal / ee_linear_sawtooth)
-# ---------------------------------------------------------------------------
-def build_linear_sinusoidal(center_pose, unit, amplitude, velocity, n_periods, dt) -> list[np.ndarray]:
-    """pos(t) = center + amplitude * cos(ωt) * unit;  ω = velocity / amplitude."""
-    omega = velocity / amplitude
+def sinusoid_profile(amplitude, omega, n_periods, dt, end_dwell: float = 0.0) -> np.ndarray:
+    """Scalar displacement amplitude * cos(ωt), one value per dt, over n_periods.
+
+    cos starts at +A with zero velocity, so each ±A edge (t = kπ/ω) is a natural
+    stop. end_dwell (s) inserts a hold exactly at each edge, including the final
+    +A, same scheme as the sawtooth builders. The cosine samples themselves stay
+    on one uniform grid, so peak speed and period are unaffected by the holds.
+    """
     total_time = n_periods * (2 * np.pi / omega)
     n_steps = max(2, int(round(total_time / dt)))
     t = np.linspace(0.0, total_time, n_steps, endpoint=False)
+    profile = amplitude * np.cos(omega * t)
+    n_dwell = max(0, int(round(end_dwell / dt)))
+    k = np.arange(2 * n_periods + 1)                        # edge index; edge k is at +A if k even
+    idx = np.searchsorted(t, k * np.pi / omega)              # insert before the first sample past edge k
+    edge = amplitude * np.where(k % 2 == 0, 1.0, -1.0)
+    return np.insert(profile, np.repeat(idx, n_dwell), np.repeat(edge, n_dwell))
+
+
+# ---------------------------------------------------------------------------
+# waypoint builders — linear (from ee_linear_sinusoidal / ee_linear_sawtooth)
+# ---------------------------------------------------------------------------
+def build_linear_sinusoidal(center_pose, unit, amplitude, velocity, n_periods, dt,
+                            end_dwell: float = 0.0) -> list[np.ndarray]:
+    """pos(t) = center + amplitude * cos(ωt) * unit;  ω = velocity / amplitude.
+
+    end_dwell (s) holds at each ±amplitude edge; see sinusoid_profile.
+    """
     waypoints = []
-    for ti in t:
+    for s in sinusoid_profile(amplitude, velocity / amplitude, n_periods, dt, end_dwell):
         wp = center_pose.copy()
-        wp[:3, 3] += amplitude * np.cos(omega * ti) * unit  # cos: starts at +A, zero velocity
+        wp[:3, 3] += s * unit
         waypoints.append(wp)
     return waypoints
 
@@ -391,16 +410,15 @@ def build_linear_ramp(center_pose, unit, amplitude, velocity, dt, to: str) -> li
 # ---------------------------------------------------------------------------
 # waypoint builders — angular (from ee_rot_sinusoidal / ee_rot_sawtooth)
 # ---------------------------------------------------------------------------
-def build_angular_sinusoidal(center_pose, axis, amplitude, ang_velocity, n_periods, dt) -> list[np.ndarray]:
-    """angle(t) = amplitude * cos(ωt) applied in body frame; position held fixed."""
-    omega = ang_velocity / amplitude
-    total_time = n_periods * (2 * np.pi / omega)
-    n_steps = max(2, int(round(total_time / dt)))
-    t = np.linspace(0.0, total_time, n_steps, endpoint=False)
+def build_angular_sinusoidal(center_pose, axis, amplitude, ang_velocity, n_periods, dt,
+                             end_dwell: float = 0.0) -> list[np.ndarray]:
+    """angle(t) = amplitude * cos(ωt) applied in body frame; position held fixed.
+
+    end_dwell (s) holds at each ±amplitude edge; see sinusoid_profile.
+    """
     R_center, p_center = center_pose[:3, :3], center_pose[:3, 3]
     waypoints = []
-    for ti in t:
-        theta = amplitude * np.cos(omega * ti)
+    for theta in sinusoid_profile(amplitude, ang_velocity / amplitude, n_periods, dt, end_dwell):
         wp = np.eye(4)
         wp[:3, :3] = R_center @ _axis_angle_to_R(axis, theta)
         wp[:3, 3] = p_center
@@ -475,7 +493,8 @@ def run_command(robot, kin, ee_site, cmd: TrajectoryCommand, n_periods: int, dt:
         unit = AXES[cmd.axis]
         if cmd.wave == "sinusoidal":
             ramp = build_linear_ramp(center_pose, unit, LINEAR_AMPLITUDE, cmd.speed, dt, to="pos")
-            main_wps = build_linear_sinusoidal(center_pose, unit, LINEAR_AMPLITUDE, cmd.speed, n_periods, dt)
+            main_wps = build_linear_sinusoidal(center_pose, unit, LINEAR_AMPLITUDE, cmd.speed, n_periods, dt,
+                                               end_dwell=end_dwell)
         else:
             ramp = build_linear_ramp(center_pose, unit, LINEAR_AMPLITUDE, cmd.speed, dt, to="neg")
             main_wps = build_linear_sawtooth(center_pose, unit, LINEAR_AMPLITUDE, cmd.speed, n_periods, dt,
@@ -486,7 +505,8 @@ def run_command(robot, kin, ee_site, cmd: TrajectoryCommand, n_periods: int, dt:
         axis = AXES[cmd.axis]
         if cmd.wave == "sinusoidal":
             ramp = build_angular_ramp(center_pose, axis, ANGULAR_AMPLITUDE, cmd.speed, dt, to="pos")
-            main_wps = build_angular_sinusoidal(center_pose, axis, ANGULAR_AMPLITUDE, cmd.speed, n_periods, dt)
+            main_wps = build_angular_sinusoidal(center_pose, axis, ANGULAR_AMPLITUDE, cmd.speed, n_periods, dt,
+                                                end_dwell=end_dwell)
         else:
             ramp = build_angular_ramp(center_pose, axis, ANGULAR_AMPLITUDE, cmd.speed, dt, to="neg")
             main_wps = build_angular_sawtooth(center_pose, axis, ANGULAR_AMPLITUDE, cmd.speed, n_periods, dt,
@@ -562,7 +582,7 @@ def main() -> None:
     parser.add_argument("--dt", type=float, default=0.02, help="Control timestep (s)")
     parser.add_argument("--end-dwell", type=float, default=0.0, dest="end_dwell",
                         help="Seconds to hold at each end of travel before reversing "
-                             "(sawtooth only); default 0 = no pause")
+                             "(sawtooth and sinusoidal); default 0 = no pause")
     parser.add_argument("--home-hold", type=float, default=HOME_HOLD_TIME, dest="home_hold",
                         help=f"Seconds to hold at home between queued trajectories; "
                              f"default {HOME_HOLD_TIME}")
