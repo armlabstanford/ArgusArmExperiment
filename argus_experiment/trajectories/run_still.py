@@ -8,9 +8,11 @@ Records the arm's actual initial pose as home, then repeats N times:
 
 The target is TRAJ_START_QPOS every repeat, or with --random a different random
 pose each repeat. Random poses are drawn up front, uniformly within ±--range rad
-of TRAJ_START_QPOS per joint, from a fixed --seed so the sim test and the
-hardware run visit the same poses. A pose is kept only if it is
-  - at least JOINT_MARGIN inside the XML joint limits,
+of TRAJ_START_QPOS per joint -- except joint 1 (shoulder pan), which gets the wider
+±--pan-range so the arm swings about the base and the camera looks in different
+directions. Each window is clipped to JOINT_MARGIN inside the XML joint limits.
+A fixed --seed makes the sim test and the hardware run visit the same poses. A
+pose is kept only if it is
   - free of self-collision (the base/link1 meshes always overlap, so that pair
     is ignored), and
   - has link_6 and the camera at least --min-height m above the base plane.
@@ -54,7 +56,8 @@ POSE_HOLD_TIME = 10.0  # s — hold at the target pose
 HOME_HOLD_TIME = 5.0   # s — hold at home after each return
 
 # --random sampling
-RANDOM_RANGE  = 0.3    # rad — max per-joint offset from TRAJ_START_QPOS
+RANDOM_RANGE  = 0.3    # rad — max per-joint offset from TRAJ_START_QPOS (joints 2-6)
+PAN_RANGE     = 1.0    # rad — max joint-1 (shoulder pan) offset: varies the look direction
 MIN_HEIGHT    = 0.10   # m   — lowest allowed link_6 / camera z (base frame)
 JOINT_MARGIN  = 0.1    # rad — keep this far inside the XML joint range
 MAX_TRIES     = 10000  # candidate draws before giving up
@@ -88,19 +91,22 @@ class PoseChecker:
         return min(self.d.body("link_6").xpos[2], self.d.site("camera_site").xpos[2])
 
 
-def sample_random_poses(checker: PoseChecker, n: int, rng_range: float, min_height: float,
-                        seed: int) -> np.ndarray:
+def sample_random_poses(checker: PoseChecker, n: int, rng_range: float, pan_range: float,
+                        min_height: float, seed: int) -> np.ndarray:
+    half = np.full(N_ARM, rng_range)
+    half[0] = pan_range
+    lo = np.maximum(TRAJ_START_QPOS - half, checker.lo)
+    hi = np.minimum(TRAJ_START_QPOS + half, checker.hi)
     rng = np.random.default_rng(seed)
     poses = []
     for _ in range(MAX_TRIES):
-        q = TRAJ_START_QPOS + rng.uniform(-rng_range, rng_range, N_ARM)
-        if (np.all(q >= checker.lo) and np.all(q <= checker.hi)
-                and not checker.collisions(q) and checker.min_height(q) >= min_height):
+        q = rng.uniform(lo, hi)
+        if not checker.collisions(q) and checker.min_height(q) >= min_height:
             poses.append(q)
             if len(poses) == n:
                 return np.array(poses)
     raise RuntimeError(f"only {len(poses)}/{n} valid poses in {MAX_TRIES} draws; "
-                       f"try a smaller --range or --min-height")
+                       f"try a smaller --range / --pan-range or --min-height")
 
 
 def check_path(checker: PoseChecker, home_q, target_q, min_height: float) -> str | None:
@@ -149,14 +155,14 @@ def save(recorder: Recorder, npz_path, args, home_q: np.ndarray, targets: np.nda
         pose_hold=args.pose_hold,                        # s, hold at the target pose
         home_hold=args.home_hold,                        # s, hold at home after each return
         random=args.random, seed=args.seed,              # --random sampling settings
-        range=args.range, min_height=args.min_height,
+        range=args.range, pan_range=args.pan_range, min_height=args.min_height,
     )
 
 
 def write_description(txt_path, args, npz_name: str, home_q: np.ndarray, targets: np.ndarray) -> None:
     if args.random:
-        target_line = (f"random, seed={args.seed}, ±{args.range} rad/joint around TRAJ_START_QPOS, "
-                       f"min height {args.min_height} m")
+        target_line = (f"random, seed={args.seed}, around TRAJ_START_QPOS: ±{args.pan_range} rad "
+                       f"joint 1, ±{args.range} rad joints 2-6, min height {args.min_height} m")
     else:
         target_line = "TRAJ_START_QPOS every repeat"
     lines = [
@@ -180,7 +186,8 @@ def write_description(txt_path, args, npz_name: str, home_q: np.ndarray, targets
         *(f"  [{i}] {q.round(4).tolist()}" for i, q in enumerate(targets)),
         "",
         "npz keys: t, q, qdot, cam_pos, cam_quat, traj_idx, phase, target_qpos, home_qpos,",
-        "          repeats, dt, argus_mass, pose_hold, home_hold, random, seed, range, min_height",
+        "          repeats, dt, argus_mass, pose_hold, home_hold, random, seed, range, pan_range,",
+        "          min_height",
         "  traj_idx is the repeat index (0-based); target_qpos[traj_idx] is that repeat's pose.",
         "  phase is one of: to_pose | pose_hold | to_home | hold",
     ]
@@ -202,8 +209,11 @@ def main() -> None:
                         help="Hold a different random pose each repeat instead of TRAJ_START_QPOS")
     parser.add_argument("--seed", type=int, default=0, help="--random: RNG seed; default 0")
     parser.add_argument("--range", type=float, default=RANDOM_RANGE,
-                        help=f"--random: max per-joint offset from TRAJ_START_QPOS (rad); "
+                        help=f"--random: max offset from TRAJ_START_QPOS for joints 2-6 (rad); "
                              f"default {RANDOM_RANGE}")
+    parser.add_argument("--pan-range", type=float, default=PAN_RANGE, dest="pan_range",
+                        help=f"--random: max joint-1 (shoulder pan) offset from TRAJ_START_QPOS "
+                             f"(rad), varies the look direction; default {PAN_RANGE}")
     parser.add_argument("--min-height", type=float, default=MIN_HEIGHT, dest="min_height",
                         help=f"--random: lowest allowed link_6 / camera z (m, base frame); "
                              f"default {MIN_HEIGHT}")
@@ -215,8 +225,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.repeats < 1:
         parser.error("--repeats must be at least 1")
-    if args.range <= 0:
-        parser.error("--range must be positive")
+    if args.range <= 0 or args.pan_range <= 0:
+        parser.error("--range and --pan-range must be positive")
 
     try:
         X = load_handeye(args.handeye)
@@ -242,7 +252,8 @@ def main() -> None:
     if args.random:
         checker = PoseChecker(xml_path)
         try:
-            targets = sample_random_poses(checker, args.repeats, args.range, args.min_height, args.seed)
+            targets = sample_random_poses(checker, args.repeats, args.range, args.pan_range,
+                                          args.min_height, args.seed)
             for i, q in enumerate(targets):
                 if (why := check_path(checker, home_q, q, args.min_height)) is not None:
                     raise RuntimeError(f"path home -> random pose {i + 1} fails: {why}; "
@@ -250,7 +261,8 @@ def main() -> None:
         except RuntimeError as e:
             robot.close()
             raise SystemExit(f"ERROR: {e}. Nothing was moved.")
-        print(f"Random poses (seed={args.seed}, ±{args.range} rad around TRAJ_START_QPOS):")
+        print(f"Random poses (seed={args.seed}, around TRAJ_START_QPOS: ±{args.pan_range} rad joint 1, "
+              f"±{args.range} rad joints 2-6):")
         for i, q in enumerate(targets):
             print(f"  [{i + 1}] {q.round(4)}")
     else:
