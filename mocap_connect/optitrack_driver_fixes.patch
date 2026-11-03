@@ -1,0 +1,91 @@
+diff --git a/mocap4r2_optitrack_driver/config/mocap4r2_optitrack_driver_params.yaml b/mocap4r2_optitrack_driver/config/mocap4r2_optitrack_driver_params.yaml
+index e9c13cb..4e2b6f1 100644
+--- a/mocap4r2_optitrack_driver/config/mocap4r2_optitrack_driver_params.yaml
++++ b/mocap4r2_optitrack_driver/config/mocap4r2_optitrack_driver_params.yaml
+@@ -1,8 +1,8 @@
+ mocap4r2_optitrack_driver_node:
+   ros__parameters:
+     connection_type: "Unicast" # Unicast / Multicast
+-    server_address: "198.17.0.120"
+-    local_address: "198.17.0.48"
++    server_address: "192.169.1.12"
++    local_address: "192.169.1.24"
+     multicast_address: "239.255.42.99"
+     server_command_port: 1510
+     server_data_port: 1511
+diff --git a/mocap4r2_optitrack_driver/src/mocap4r2_optitrack_driver/mocap4r2_optitrack_driver.cpp b/mocap4r2_optitrack_driver/src/mocap4r2_optitrack_driver/mocap4r2_optitrack_driver.cpp
+index 78f5fa2..e7c7c02 100644
+--- a/mocap4r2_optitrack_driver/src/mocap4r2_optitrack_driver/mocap4r2_optitrack_driver.cpp
++++ b/mocap4r2_optitrack_driver/src/mocap4r2_optitrack_driver/mocap4r2_optitrack_driver.cpp
+@@ -131,6 +131,30 @@ OptitrackDriverNode::process_frame(sFrameOfMocapData * data)
+   rclcpp::Duration frame_delay = rclcpp::Duration(get_optitrack_system_latency(data));
+ 
+   std::map<int, std::vector<mocap4r2_msgs::msg::Marker>> marker2rb;
++  std::vector<mocap4r2_msgs::msg::Marker> loose_markers;
++
++  // CHANGE 2: sort markers every frame, outside the subscriber check,
++  // so rb.markers is filled even when nobody subscribes to /markers
++  for (int i = 0; i < data->nLabeledMarkers; i++) {
++    bool Unlabeled = ((data->LabeledMarkers[i].params & 0x10) != 0);
++    bool ActiveMarker = ((data->LabeledMarkers[i].params & 0x20) != 0);
++    sMarker & marker_data = data->LabeledMarkers[i];
++    int modelID, markerID;
++    NatNet_DecodeID(marker_data.ID, &modelID, &markerID);
++
++    mocap4r2_msgs::msg::Marker marker;
++    marker.id_type = mocap4r2_msgs::msg::Marker::USE_INDEX;
++    marker.translation.x = marker_data.x;
++    marker.translation.y = marker_data.y;
++    marker.translation.z = marker_data.z;
++    if (ActiveMarker || Unlabeled) {
++      marker.marker_index = i;           // loose markers have no stable identity
++      loose_markers.push_back(marker);
++    } else {
++      marker.marker_index = markerID;    // CHANGE 3: Motive's marker number within its rigid body
++      marker2rb[modelID].push_back(marker);
++    }
++  }
+ 
+   // Markers
+   if (mocap4r2_markers_pub_->get_subscription_count() > 0) {
+@@ -138,26 +162,7 @@ OptitrackDriverNode::process_frame(sFrameOfMocapData * data)
+     msg.header.stamp = now() - frame_delay;
+     msg.header.frame_id = "map";
+     msg.frame_number = frame_number_;
+-
+-    for (int i = 0; i < data->nLabeledMarkers; i++) {
+-      bool Unlabeled = ((data->LabeledMarkers[i].params & 0x10) != 0);
+-      bool ActiveMarker = ((data->LabeledMarkers[i].params & 0x20) != 0);
+-      sMarker & marker_data = data->LabeledMarkers[i];
+-      int modelID, markerID;
+-      NatNet_DecodeID(marker_data.ID, &modelID, &markerID);
+-
+-      mocap4r2_msgs::msg::Marker marker;
+-      marker.id_type = mocap4r2_msgs::msg::Marker::USE_INDEX;
+-      marker.marker_index = i;
+-      marker.translation.x = marker_data.x;
+-      marker.translation.y = marker_data.y;
+-      marker.translation.z = marker_data.z;
+-      if (ActiveMarker || Unlabeled) {
+-        msg.markers.push_back(marker);
+-      } else {
+-        marker2rb[modelID].push_back(marker);
+-      }
+-    }
++    msg.markers = loose_markers;
+     mocap4r2_markers_pub_->publish(msg);
+   }
+ 
+@@ -168,6 +173,12 @@ OptitrackDriverNode::process_frame(sFrameOfMocapData * data)
+     msg_rb.frame_number = frame_number_;
+ 
+     for (int i = 0; i < data->nRigidBodies; i++) {
++      // CHANGE 1: skip rigid bodies Motive did not track this frame
++      bool tracking_valid = (data->RigidBodies[i].params & 0x01) != 0;
++      if (!tracking_valid) {
++        continue;
++      }
++
+       mocap4r2_msgs::msg::RigidBody rb;
+ 
+       rb.rigid_body_name = std::to_string(data->RigidBodies[i].ID);

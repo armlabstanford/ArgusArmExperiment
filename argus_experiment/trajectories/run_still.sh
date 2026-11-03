@@ -25,8 +25,8 @@ shift
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REPEATS=10      # number of start/home cycles
-POSE_HOLD=1    # s    — hold at TRAJ_START_QPOS
-HOME_HOLD=1     # s    — hold at home after each return
+POSE_HOLD=10    # s    — hold at TRAJ_START_QPOS
+HOME_HOLD=5     # s    — hold at home after each return
 DT=0.02         # s    — control / recording timestep
 
 python "$SCRIPT_DIR/run_still.py" "$TRIAL_NAME" \

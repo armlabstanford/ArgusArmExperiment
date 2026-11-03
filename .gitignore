@@ -7,14 +7,12 @@ __pycache__/
 bags/
 debug.png
 
-argus_experiment/trajectories/recordings/traj_*/
+# trajectory recordings (data, not code) — keep only the .gitkeep placeholder
+argus_experiment/trajectories/recordings/*
 !argus_experiment/trajectories/recordings/.gitkeep
 
 # hand-eye calibration capture images (regenerated each calibration run)
 argus_experiment/calibration/handeye_captures/*.png
-
-# trajectory recordings (data, not code)
-argus_experiment/trajectories/recordings/
 
 # external VIO repo (cloned separately; see argus_repo/insert_argus_vio.txt)
 # and its colcon build workspace — not tracked in this project.
@@ -23,3 +21,24 @@ data_processing/argus_repo/ws/
 
 # processing data (bags, c3d, npz outputs) — not code
 data_processing/data/
+
+# OpenVINS workspace (pinned in argus_connect_tools/open_vins.repos;
+# fetch with: vcs import argus_connect_tools/open_vins_ws < argus_connect_tools/open_vins.repos)
+argus_connect_tools/open_vins_ws/
+
+# mocap tools: external ROS 2 repos (pinned in mocap_connect/mocap.repos;
+# fetch with: vcs import mocap_connect/src < mocap_connect/mocap.repos,
+# then apply mocap_connect/optitrack_driver_fixes.patch)
+mocap_connect/src/mocap4r2/
+mocap_connect/src/mocap4r2_msgs/
+mocap_connect/src/mocap4ros2_optitrack/
+
+# mocap tools: colcon build artifacts (regenerate with colcon build)
+mocap_connect/build/
+mocap_connect/install/
+mocap_connect/log/
+
+# mocap recordings and exported data — not code
+mocap_bags/
+mocap_data/
+mocap_connect/*.csv

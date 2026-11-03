@@ -6,8 +6,19 @@ cv2.calibrateHandEye. The checkerboard stays FIXED; you jog the compliant arm by
 hand to ~15-20 varied poses and capture at each. Rotation variety matters most —
 tilt/roll the wrist a lot, don't just translate.
 
-Intrinsics are read from a Kalibr-derived YAML (fisheye / equidistant KB4 model),
-so detected corners are undistorted with cv2.fisheye before solvePnP.
+Intrinsics are read from a Kalibr camchain YAML (default:
+arm_calib_dynamic-camchain-imucam.yaml, camera 'cam0'). That calibration is
+camera_model=pinhole + distortion_model=equidistant, i.e. the Kannala-Brandt
+KB4 model, which is exactly OpenCV's cv2.fisheye model (k1..k4). Detected
+corners are undistorted with cv2.fisheye before solvePnP. The legacy
+{camera: {fx, fy, cx, cy, distortion, ...}} format is still accepted.
+
+The intrinsics are only valid at the resolution they were calibrated at
+(640x400 for cam0). The Arducam OV9281 has no 640x400 mode, so capture at
+--capture-res 1280x800 and either K is rescaled 2x (default; distortion is
+scale-invariant), or add --resize-to-calib to downscale frames to 640x400 and
+use K as calibrated.
+The script aborts if the camera doesn't deliver the requested resolution.
 
 Workflow:
   1. Tape the checkerboard down where the camera can see it.
@@ -22,8 +33,9 @@ printed on its side).
 
 Usage:
     python argus_experiment/calibration/hand_eye_calibration.py \
-        --channel can0 --device /dev/video1 \
-        --cols 10 --rows 7 --square 0.036
+        --channel can0 --device /dev/video3 --capture-res 1280x800 \
+        --intrinsics argus_experiment/calibration/arm_calib_dynamic-camchain-imucam.yaml \
+        --cam-key cam0 --cols 10 --rows 7 --square 0.036
 """
 
 import argparse
@@ -42,7 +54,6 @@ sys.path.insert(0, str(_REPO / "robots_realtime"))  # for robots_realtime.sensor
 from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.kinematics import Kinematics
 from i2rt.robots.utils import ArmType, GripperType
-from robots_realtime.sensors.cameras.opencv_camera import OpencvCamera
 
 N_ARM = 6
 
@@ -84,18 +95,150 @@ def make_SE3(R: np.ndarray, t: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # intrinsics
 # ---------------------------------------------------------------------------
-def load_intrinsics(path: Path):
+_FISHEYE_MODELS = ("equidistant", "fisheye", "kb4")
+_RADTAN_MODELS = ("radtan", "plumb_bob", "radial-tangential")
+
+
+def load_intrinsics(path: Path, cam_key: str = "cam0"):
+    """
+    Load K and distortion from a Kalibr camchain YAML (or the legacy format).
+
+    Kalibr camchain layout (per camera, e.g. cam0):
+        camera_model:      pinhole
+        intrinsics:        [fu, fv, pu, pv]
+        distortion_model:  equidistant | radtan | none
+        distortion_coeffs: [k1, k2, k3, k4]   (equidistant)
+                           [k1, k2, r1, r2]   (radtan == OpenCV k1,k2,p1,p2)
+        resolution:        [width, height]
+
+    pinhole + equidistant is Kannala-Brandt KB4 == cv2.fisheye.
+
+    Returns (K, D, is_fisheye, (width, height), info_dict).
+    """
     with open(path) as f:
         cfg = yaml.safe_load(f)
-    cam = cfg["camera"]
-    K = np.array([[cam["fx"], 0.0, cam["cx"]],
-                  [0.0, cam["fy"], cam["cy"]],
+
+    if "camera" in cfg:  # legacy single-camera format
+        cam = cfg["camera"]
+        fx, fy, cx, cy = (float(cam[k]) for k in ("fx", "fy", "cx", "cy"))
+        dist = np.asarray(cam["distortion"], dtype=float)
+        dist_model = cam.get("distortion_model", "equidistant").lower()
+        cam_model = "pinhole"
+        w, h = int(cam["width"]), int(cam["height"])
+        if dist_model in _FISHEYE_MODELS:
+            dist = dist[:4]
+        src_key = "camera"
+    else:  # Kalibr camchain
+        if cam_key not in cfg:
+            raise KeyError(f"{cam_key!r} not found in {path} (available: {list(cfg)})")
+        cam = cfg[cam_key]
+        cam_model = cam.get("camera_model", "pinhole").lower()
+        if cam_model != "pinhole":
+            raise ValueError(
+                f"Kalibr camera_model {cam_model!r} is not supported "
+                "(only 'pinhole' with equidistant/radtan/none distortion).")
+        fx, fy, cx, cy = (float(v) for v in cam["intrinsics"])
+        dist = np.asarray(cam.get("distortion_coeffs", []), dtype=float)
+        dist_model = cam.get("distortion_model", "radtan").lower()
+        w, h = (int(v) for v in cam["resolution"])
+        src_key = cam_key
+
+    if dist_model in _FISHEYE_MODELS:
+        if dist.size != 4:
+            raise ValueError(f"equidistant model needs 4 coeffs, got {dist.size}")
+        is_fisheye = True
+        D = dist.reshape(4, 1)
+    elif dist_model in _RADTAN_MODELS:
+        is_fisheye = False
+        D = dist.reshape(-1, 1)
+    elif dist_model == "none":
+        is_fisheye = False
+        D = np.zeros((4, 1))
+    else:
+        raise ValueError(f"Unsupported distortion_model {dist_model!r}")
+
+    K = np.array([[fx, 0.0, cx],
+                  [0.0, fy, cy],
                   [0.0, 0.0, 1.0]])
-    dist = np.array(cam["distortion"], dtype=float)
-    model = cam.get("distortion_model", "equidistant").lower()
-    is_fisheye = model in ("equidistant", "fisheye", "kb4")
-    D = dist[:4].reshape(4, 1) if is_fisheye else dist.reshape(-1, 1)
-    return K, D, is_fisheye, (cam["width"], cam["height"])
+    info = {
+        "source": str(Path(path).resolve()),
+        "cam_key": src_key,
+        "camera_model": cam_model,
+        "distortion_model": dist_model,
+        "intrinsics_fx_fy_cx_cy": [fx, fy, cx, cy],
+        "distortion_coeffs": D.ravel().tolist(),
+        "resolution_wh": [w, h],
+    }
+    return K, D, is_fisheye, (w, h), info
+
+
+def scale_intrinsics(K: np.ndarray, src_wh, dst_wh) -> np.ndarray:
+    """
+    Rescale K for a uniformly resized image (e.g. calibrated at 640x400 on 2x
+    downscaled frames, used at native 1280x800). Distortion (KB4 or radtan)
+    acts on normalized coordinates, so D is unchanged.
+
+    Uses the pixel-centre convention (integer coords = pixel centres), so for a
+    scale s:  c_dst = s * (c_src + 0.5) - 0.5.
+    """
+    (sw, sh), (dw, dh) = src_wh, dst_wh
+    sx, sy = dw / sw, dh / sh
+    if abs(sx - sy) > 1e-9:
+        raise ValueError(
+            f"Capture {dw}x{dh} vs calibrated {sw}x{sh} changes aspect ratio "
+            f"(sx={sx:.4f}, sy={sy:.4f}) — that's a crop, not a resize; "
+            "intrinsics can't be rescaled. Recalibrate at this resolution.")
+    K2 = K.copy()
+    K2[0, 0] *= sx
+    K2[1, 1] *= sy
+    K2[0, 2] = sx * (K[0, 2] + 0.5) - 0.5
+    K2[1, 2] = sy * (K[1, 2] + 0.5) - 0.5
+    return K2
+
+
+# ---------------------------------------------------------------------------
+# camera
+# ---------------------------------------------------------------------------
+class V4L2Camera:
+    """
+    Minimal direct V4L2 capture. Opens exactly the given device (no fallback
+    scanning), sets FOURCC *before* width/height (required by many UVC cams,
+    incl. the Arducam OV9281), and returns RGB frames.
+    """
+
+    def __init__(self, device, resolution, fourcc="YUYV", fps=None):
+        self.device = device
+        dev = int(device) if str(device).isdigit() else str(device)
+        self.cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
+        if not self.cap.isOpened():
+            raise SystemExit(f"Could not open {device}. Is another process using it? "
+                             f"Check:  fuser -v {device}")
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc))
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+        if fps:
+            self.cap.set(cv2.CAP_PROP_FPS, fps)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+    def mode(self) -> str:
+        cc = int(self.cap.get(cv2.CAP_PROP_FOURCC))
+        cc = "".join(chr((cc >> 8 * i) & 0xFF) for i in range(4))
+        return (f"{int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x"
+                f"{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))} {cc} "
+                f"@ {self.cap.get(cv2.CAP_PROP_FPS):.0f} fps")
+
+    def read_rgb(self, timeout: float = 3.0) -> np.ndarray:
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            ok, frame = self.cap.read()
+            if ok and frame is not None:
+                if frame.ndim == 2:
+                    return cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+                return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        raise RuntimeError(f"No frame from {self.device} within {timeout:.0f} s")
+
+    def stop(self) -> None:
+        self.cap.release()
 
 
 def solve_pnp_target(corners, objp, K, D, is_fisheye):
@@ -117,9 +260,37 @@ def solve_pnp_target(corners, objp, K, D, is_fisheye):
 # capture + solve
 # ---------------------------------------------------------------------------
 def run(args) -> None:
-    K, D, is_fisheye, (w, h) = load_intrinsics(Path(args.intrinsics))
-    print(f"Intrinsics: fx={K[0,0]:.2f} fy={K[1,1]:.2f} cx={K[0,2]:.2f} cy={K[1,2]:.2f} "
-          f"| {'FISHEYE/KB4' if is_fisheye else 'pinhole/radtan'}")
+    K, D, is_fisheye, (w, h), intr_info = load_intrinsics(Path(args.intrinsics), args.cam_key)
+    print(f"Intrinsics [{intr_info['cam_key']}]: fx={K[0,0]:.2f} fy={K[1,1]:.2f} "
+          f"cx={K[0,2]:.2f} cy={K[1,2]:.2f} @ {w}x{h} "
+          f"| {intr_info['camera_model']}/{intr_info['distortion_model']} "
+          f"({'cv2.fisheye KB4' if is_fisheye else 'OpenCV pinhole'})")
+    print(f"  D = {D.ravel().round(6)}")
+
+    # Capture resolution: default = calibrated resolution. If the camera can't
+    # run that mode, capture at a larger same-aspect mode and either
+    #   (a) --resize-to-calib: downscale each frame to the calibrated size and
+    #       use K unchanged (matches the images Kalibr saw), or
+    #   (b) default: keep full-res frames and rescale K (better corner precision).
+    if args.capture_res:
+        cw, ch = (int(v) for v in args.capture_res.lower().split("x"))
+    else:
+        cw, ch = w, h
+    cam_wh = (cw, ch)          # what the camera is asked to deliver
+    resize_wh = None           # if set, frames are resized to this before detection
+    if cam_wh != (w, h):
+        K_scaled = scale_intrinsics(K, (w, h), cam_wh)  # also validates aspect ratio
+        intr_info["capture_resolution_wh"] = list(cam_wh)
+        if args.resize_to_calib:
+            resize_wh = (w, h)
+            print(f"  Capturing at {cw}x{ch}, resizing frames to {w}x{h} (INTER_AREA); "
+                  "K used as calibrated.")
+            intr_info["frames_resized_to_wh"] = [w, h]
+        else:
+            K = K_scaled
+            print(f"  Capturing at {cw}x{ch}: K rescaled x{cw / w:g} -> "
+                  f"fx={K[0,0]:.2f} fy={K[1,1]:.2f} cx={K[0,2]:.2f} cy={K[1,2]:.2f}")
+        intr_info["K_used"] = K.tolist()
 
     # Checkerboard object points (inner-corner grid), Z=0 plane.
     cols, rows = args.cols, args.rows
@@ -132,7 +303,19 @@ def run(args) -> None:
     dbg_dir = out_dir / "handeye_captures"
     dbg_dir.mkdir(parents=True, exist_ok=True)
 
-    camera = OpencvCamera(device_path=args.device, resolution=(w, h))
+    # Open the camera and verify resolution BEFORE making the arm compliant:
+    # intrinsics are only valid at the calibrated resolution.
+    camera = V4L2Camera(args.device, cam_wh, fourcc=args.fourcc)
+    probe = camera.read_rgb()
+    ph, pw = probe.shape[:2]
+    print(f"  Camera {args.device}: {camera.mode()}")
+    if (pw, ph) != cam_wh:
+        camera.stop()
+        raise SystemExit(
+            f"Camera delivers {pw}x{ph} but {cam_wh[0]}x{cam_wh[1]} was requested. Check the device "
+            "and its supported modes (v4l2-ctl -d <dev> --list-formats-ext); pass "
+            "--capture-res to match a supported mode with the calibrated aspect ratio.")
+
     robot = get_yam_robot(
         channel=args.channel,
         arm_type=ArmType.from_string_name(args.arm),
@@ -155,7 +338,9 @@ def run(args) -> None:
 
     def flush_and_grab():
         for _ in range(5):  # drop buffered frames
-            frame = camera.read().images["rgb"]
+            frame = camera.read_rgb()
+        if resize_wh is not None:
+            frame = cv2.resize(frame, resize_wh, interpolation=cv2.INTER_AREA)
         return frame
 
     while True:
@@ -218,7 +403,7 @@ def run(args) -> None:
         rpy = np.array(cv2.RQDecomp3x3(R_x)[0])
         print(f"  {name:11s} t={t_x.ravel().round(4)}  rpy_deg={rpy.round(2)}")
 
-    # Primary = PARK (jointly solves R,t; robust general choice).
+    # Primary = PARK by default (jointly solves R,t; robust general choice).
     X = results[args.method]  # T_ee_cam in grasp_site frame
     print(f"\nUsing method '{args.method}' as primary result.")
 
@@ -236,11 +421,11 @@ def run(args) -> None:
     site_pos = T_l6_cam[:3, 3]
     site_quat = R_to_wxyz(T_l6_cam[:3, :3])
 
-    _save_result(Path(args.out), X, T_l6_cam, results, args, n)
+    _save_result(Path(args.out), X, T_l6_cam, results, args, n, intr_info)
     np.savez(Path(args.out).with_suffix(".raw.npz"),
              R_g2b=np.array(R_g2b), t_g2b=np.array(t_g2b),
              R_t2c=np.array(R_t2c), t_t2c=np.array(t_t2c),
-             poses_q=np.array(poses_q))
+             poses_q=np.array(poses_q), K=K, D=D)
 
     print("\n" + "=" * 68)
     print(f"X = T_ee_cam (grasp_site frame):\n{np.array2string(X, precision=5)}")
@@ -258,12 +443,13 @@ def run(args) -> None:
     camera.stop()
 
 
-def _save_result(path: Path, X, T_l6_cam, results, args, n) -> None:
+def _save_result(path: Path, X, T_l6_cam, results, args, n, intr_info) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     doc = {
         "method": args.method,
         "num_poses": n,
         "board": {"cols": args.cols, "rows": args.rows, "square_m": args.square},
+        "intrinsics": intr_info,  # provenance: which calibration produced X
         "T_ee_cam": {  # camera in grasp_site (EE) frame — this is X
             "matrix": X.tolist(),
             "translation": X[:3, 3].tolist(),
@@ -281,15 +467,28 @@ def _save_result(path: Path, X, T_l6_cam, results, args, n) -> None:
 
 def main() -> None:
     arm_choices = [a.value for a in ArmType]
-    default_intr = _REPO / "argus_experiment" / "calibration" / "camera_intrinsics.yaml"
-    default_out = _REPO / "argus_experiment" / "calibration" / "hand_eye_result.yaml"
+    calib_dir = _REPO / "argus_experiment" / "calibration"
+    default_intr = calib_dir / "arm_calib_dynamic-camchain-imucam.yaml"
+    default_out = calib_dir / "hand_eye_result.yaml"
 
     p = argparse.ArgumentParser(description="Eye-in-hand hand-eye calibration for YAM + link_6 camera")
     p.add_argument("--arm", default="yam", choices=arm_choices)
     p.add_argument("--channel", default="can0")
     p.add_argument("--sim", action="store_true", help="Compliant sim robot (no real camera stream)")
-    p.add_argument("--device", default="/dev/video-zed2i", help="OpenCV camera device path/index")
-    p.add_argument("--intrinsics", default=str(default_intr))
+    p.add_argument("--device", default="/dev/video0", help="OpenCV camera device path/index")
+    p.add_argument("--fourcc", default="YUYV", choices=["YUYV", "MJPG"],
+                   help="Pixel format. YUYV = uncompressed (best corners); MJPG if YUYV "
+                        "can't reach the resolution over USB")
+    p.add_argument("--intrinsics", default=str(default_intr),
+                   help="Kalibr camchain YAML (or legacy {camera: ...} YAML)")
+    p.add_argument("--cam-key", default="cam0",
+                   help="Camera entry in the Kalibr camchain (cam0, cam1, ...)")
+    p.add_argument("--capture-res", default=None,
+                   help="Capture WxH if the camera can't run the calibrated resolution, "
+                        "e.g. 1280x800 for intrinsics calibrated at 640x400 (K is rescaled)")
+    p.add_argument("--resize-to-calib", action="store_true",
+                   help="With --capture-res: downscale frames to the calibrated resolution "
+                        "and use K unchanged, instead of rescaling K")
     p.add_argument("--site", default="grasp_site", help="EE site used for FK (calibration frame)")
     # Board: 8x11 squares @ 36 mm  ->  10x7 INNER corners (squares - 1 each side).
     p.add_argument("--cols", type=int, default=10, help="Inner corners along width (= squares_w - 1)")

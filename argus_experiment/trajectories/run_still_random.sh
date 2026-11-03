@@ -34,8 +34,8 @@ shift
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REPEATS=10      # number of pose/home cycles, one random pose each
-POSE_HOLD=1    # s    — hold at each random pose
-HOME_HOLD=1     # s    — hold at home after each return
+POSE_HOLD=10    # s    — hold at each random pose
+HOME_HOLD=5     # s    — hold at home after each return
 DT=0.02         # s    — control / recording timestep
 SEED=0          #        RNG seed for the pose set
 PAN_RANGE=1.0   # rad  — max joint-1 (shoulder pan) offset from TRAJ_START_QPOS
