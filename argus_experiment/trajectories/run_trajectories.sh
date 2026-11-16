@@ -32,17 +32,52 @@ shift
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# demo movements, will eventually load full sequence
+
+
+# VELOCITY=4.0
+# DT=0.0025
+# PERIODS=1
+# END_DWELL=2
+# HOME_HOLD=2
+
+# python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
+#     --traj "sawtooth:angular:roll:$VELOCITY" \
+#     --traj "sawtooth:angular:pitch:$VELOCITY" \
+#     --traj "sawtooth:angular:yaw:$VELOCITY" \
+#     --periods "$PERIODS" \
+#     --dt "$DT" \
+#     --end-dwell "$END_DWELL" \
+#     --home-hold "$HOME_HOLD" \
+#     "$@"
+
+VELOCITY=1.0
+DT=0.005
+PERIODS=1
+END_DWELL=1
+HOME_HOLD=1
+
 python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
-    --traj sawtooth:linear:y:0.1 \
-    --traj sawtooth:linear:z:0.1 \
+    --traj "sawtooth:linear:x:$VELOCITY" \
+    --traj "sawtooth:linear:y:$VELOCITY" \
+    --traj "sawtooth:linear:z:$VELOCITY" \
+    --periods "$PERIODS" \
+    --dt "$DT" \
+    --end-dwell "$END_DWELL" \
+    --home-hold "$HOME_HOLD" \
     "$@"
+
+# # demo movements, will eventually load full sequence
+# python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
+#     --traj sawtooth:linear:y:0.8 \
+#     --traj sawtooth:linear:z:0.8 \
+#     --traj sawtooth:linear:x:0.8 \
+#     "$@"
 
 
 # python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
-#     --traj sawtooth:angular:yaw:0.2 \
-#     --traj sawtooth:angular:pitch:0.2 \
-#     --traj sawtooth:angular:roll:0.2 \
+#     --traj sawtooth:angular:yaw:1.0 \
+#     --traj sawtooth:angular:pitch:1.0 \
+#     --traj sawtooth:angular:roll:1.0 \
 #     "$@"
 
 # python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \

@@ -10,16 +10,16 @@ shift
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-VELOCITY=0.2
-DT=0.02
+VELOCITY=0.5
+DT=0.005
 PERIODS=10
-END_DWELL=0.5
+END_DWELL=1
 HOME_HOLD=5
 
 python "$SCRIPT_DIR/run_trajectories.py" "$TRIAL_NAME" \
-    --traj "sawtooth:angular:roll:$VELOCITY" \
-    --traj "sawtooth:angular:pitch:$VELOCITY" \
-    --traj "sawtooth:angular:yaw:$VELOCITY" \
+    --traj "sinusoidal:angular:roll:$VELOCITY" \
+    --traj "sinusoidal:angular:pitch:$VELOCITY" \
+    --traj "sinusoidal:angular:yaw:$VELOCITY" \
     --periods "$PERIODS" \
     --dt "$DT" \
     --end-dwell "$END_DWELL" \

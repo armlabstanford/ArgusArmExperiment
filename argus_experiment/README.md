@@ -35,7 +35,6 @@ bash argus_experiment/trajectories/run_trajectories.sh TRIAL_NAME
 ```
 
 # RUN THESE TRAJECTORIES
-
 ## Linear sawtooth (x, y, z sweeps; constant speed in m/s)
 ```bash
 bash argus_experiment/trajectories/run_linsawtooth_v0.1.sh linear-sawtooth-0.1
@@ -64,7 +63,7 @@ bash argus_experiment/trajectories/run_linsinusoid_v1.0.sh linear-sinusoid-1.0
 
 ## Angular sawtooth (roll, pitch, yaw sweeps; constant speed in rad/s)
 ```bash
-bash argus_experiment/trajectories/run_angsawtooth_v0.2.sh angular-sawtooth-0.2
+bash argus_experiment/trajectories/run_angsawtooth_v0.5.sh angular-sawtooth-0.5
 ```
 
 ```bash
@@ -75,9 +74,13 @@ bash argus_experiment/trajectories/run_angsawtooth_v1.0.sh angular-sawtooth-1.0
 bash argus_experiment/trajectories/run_angsawtooth_v2.0.sh angular-sawtooth-2.0
 ```
 
+```bash
+bash argus_experiment/trajectories/run_angsawtooth_v4.0.sh angular-sawtooth-4.0
+```
+
 ## Angular sinusoid (roll, pitch, yaw sweeps; peak speed in rad/s)
 ```bash
-bash argus_experiment/trajectories/run_angsinusoid_v0.2.sh angular-sinusoid-0.2
+bash argus_experiment/trajectories/run_angsinusoid_v0.5.sh angular-sinusoid-0.5
 ```
 
 ```bash
@@ -87,6 +90,22 @@ bash argus_experiment/trajectories/run_angsinusoid_v1.0.sh angular-sinusoid-1.0
 ```bash
 bash argus_experiment/trajectories/run_angsinusoid_v2.0.sh angular-sinusoid-2.0
 ```
+
+```bash
+bash argus_experiment/trajectories/run_angsinusoid_v4.0.sh angular-sinusoid-4.0
+```
+
+## Static holds (no motion; 10 repeats of home -> pose -> hold 10 s -> home)
+Fixed pose (trajectory start pose):
+```bash
+bash argus_experiment/trajectories/run_still.sh still
+```
+
+## Random poses (a different pose each repeat, fixed seed):
+```bash
+bash argus_experiment/trajectories/run_still_random.sh still-random
+```
+
 
 Trial ends automatically. End the ARGUS and MoCap data collection.
 

@@ -19,6 +19,7 @@ And you should see a name called "Hotspot-2" with device "wlxc83a35c807b4"
 Once hotspot is up, power on the raspberry pi (connected to robot). Once it turns on, it's set up to automatically connect to the hotspot. You can check this by turning the pi on, waiting a minute, and running:
 ```
 sudo arp-scan --interface=wlxc83a35c807b4 --localnet
+sudo arp-scan --interface=wlx58d8125ed4b4 --localnet
 ```
 
 This should produce a result which looks like:
@@ -29,6 +30,7 @@ If you see Raspberry Pi anywhere, you're good! Sometimes this takes a while afte
 Now, the rog and the Pi are connected, and you can ssh in to remotely access the Pi:
 ```
 ssh argus@192.168.50.10
+ssh argus@192.169.1.13
 ```
 
 If this doesn't work, it's possible the ip address changed. Use the arp-scan command above to get the ip address (first entry) and use that instead of 192.168.50.10 .
@@ -98,3 +100,11 @@ ip_addr     mac_addr     Raspberry Pi Trading Ltd
 
 use ssh argus@ip_addr to login
 
+## RUN ON ROG
+
+```
+PI=argus@192.168.50.10; mkdir -p ~/ArgusArmExperiment/bags
+BAGS=$(ssh $PI 'cd ~/bags && for d in */; do [ -f "$d/metadata.yaml" ] && echo "${d%/}"; done')
+echo "Moving: ${BAGS:-none}"
+for b in $BAGS; do rsync -avP "$PI:bags/$b" ~/ArgusArmExperiment/bags/ && ssh $PI "rm -rf -- ~/bags/'$b'" && echo "Deleted from Pi: $b"; done
+```

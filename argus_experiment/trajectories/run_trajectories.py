@@ -99,10 +99,20 @@ TRAJ_START_QPOS = np.array([
     -0.3515,  # [3] Wrist 1
     -0.0100,  # [4] Wrist 2
     +0.4339,  # [5] Wrist 3
+]) ## last
+
+TRAJ_START_QPOS = np.array([
+    +0.0166,  # [0] Shoulder Pan
+    +0.9283,  # [1] Shoulder Pitch
+    +1.1664,  # [2] Elbow
+    -0.2253,  # [3] Wrist 1
+    -0.0067,  # [4] Wrist 2
+    +0.0238,  # [5] Wrist 3
 ])
 
+
 LINEAR_AMPLITUDE  = 0.1       # m   — half peak-to-peak (matches ee_linear_*)
-ANGULAR_AMPLITUDE = 0.5236/3 #TODO    # rad — peak excursion ~30 deg (matches ee_rot_*)
+ANGULAR_AMPLITUDE = 0.5236 #TODO    # rad — peak excursion ~30 deg (matches ee_rot_*)
 
 N_PERIODS       = 2
 START_TOL       = 0.05        # rad
