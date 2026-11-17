@@ -259,3 +259,44 @@ Data currently goes over Wi-Fi. Unicast avoids the multicast burst/stall
 behavior seen on Wi-Fi (~220 ms gaps followed by bursts), but a **wired
 connection** (separate NIC on the Motive PC, static IPs) gives the most
 consistent timing and is recommended for experiment data.
+---
+
+## 5. Export to C3D (OpenSim) and view
+
+`bag2c3d.py` writes every rigid body's labeled markers to a C3D file. Points
+are named `<segment>_<marker_index>` (e.g. `torso_1`, `r_humerus_3`), with the
+segment taken from the Streaming ID:
+
+| Streaming ID | Segment |
+|---|---|
+| 47 | `torso` |
+| 48 / 49 | `r_humerus` / `l_humerus` |
+| 45 / 46 | `r_forearm` / `l_forearm` |
+| 42 / 41 | `r_acromion` / `l_acromion` |
+
+It reads the bag with the pure-Python `rosbags` library, so ROS and this
+workspace don't need to be sourced:
+
+```bash
+pip install --user rosbags ezc3d viser
+cd ~/ArgusArmExperiment/mocap_connect
+python3 bag2c3d.py ../mocap_data/dynamic1                 # -> ../mocap_data/dynamic1.c3d (Motive frame, Z up, mm)
+python3 bag2c3d.py ../mocap_data/dynamic1 --axes=-x,z,y   # OpenSim frame: X forward, Y up, Z right
+python3 c3d_viewer.py ../mocap_data/dynamic1.c3d          # open http://localhost:8080
+```
+
+- Frames are placed on the 120 Hz grid by `header.stamp`, so frames the driver
+  never received are gaps (all markers missing), not a shortened trial. The
+  stamp of frame 0 is saved in the C3D as `MOCAP:START_STAMP`.
+- ezc3d, and so OpenSim, reads at most 65535 frames (9.1 min at 120 Hz) from
+  one C3D. A longer trial is written as `<name>_part1.c3d`, `<name>_part2.c3d`,
+  ... of equal length with the same markers. `MOCAP:PART`, `MOCAP:FRAME_OFFSET`
+  and each part's own `MOCAP:START_STAMP` say where it sits in the trial.
+- Lost bodies and occluded markers are written as invalid points; OpenSim reads
+  them as NaN.
+- `--axes=-x,z,y` assumes the subject faces Motive −X (right side toward +Y),
+  which holds for the current recordings. Check this if the setup moves.
+- Use `--name ID=segment` to name a new rigid body and `--rb` to export a subset.
+
+The viewer plays the file back with a checkbox for every marker and every
+segment, a frame slider, speed control and optional labels.

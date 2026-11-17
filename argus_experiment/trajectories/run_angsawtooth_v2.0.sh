@@ -10,7 +10,7 @@ shift
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-VELOCITY=4.0
+VELOCITY=2.0
 DT=0.0025
 PERIODS=10
 END_DWELL=1

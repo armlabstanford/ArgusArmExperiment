@@ -119,6 +119,13 @@ START_TOL       = 0.05        # rad
 START_MOVE_TIME = 3.0         # s
 HOME_HOLD_TIME  = 1.0         # s — pause at home between queued trajectories
 
+# Per-joint cap on the velocity feedforward execute_waypoints sends. The motors run
+# tau = kp*(q_t - q) + kd*(v_t - qdot), so a bad v_t (an IK branch flip, or a long
+# catch-up after IK failures) costs kd*v_t at once -- 1.5 Nm per rad/s on the wrists,
+# 5 on the shoulder. Legitimate peaks top out at ~7.7 rad/s (wrist 1 on a 4 rad/s
+# roll sweep); 10 rad/s is also the DM4340's MIT-mode velocity range.
+MAX_FF_VEL      = 10.0        # rad/s
+
 AXES = {
     "x":     np.array([1.0, 0.0, 0.0]),
     "y":     np.array([0.0, 1.0, 0.0]),
@@ -165,8 +172,9 @@ class Recorder:
     """Samples measured joint q/qdot and camera pose continuously over the run.
 
     Camera pose is T_base_cam = FK(grasp_site) @ X, where X = T_ee_cam from the
-    hand-eye result. joint_vel is the robot's measured velocity (authoritative on
-    hardware; the sim reports zero, so use t + q for finite differences there).
+    hand-eye result. joint_vel is the robot's measured velocity on hardware. The
+    sim has no dynamics and echoes back the last commanded feedforward velocity
+    (zero outside execute_waypoints), so it is not a measurement there.
     """
 
     def __init__(self, robot, kin, X: np.ndarray):
@@ -286,19 +294,41 @@ def execute_waypoints(robot, kin, ee_site, waypoints, init_q, dt, viewer=None,
     dt=0.02 but ~30% low by dt=0.002. A step that overruns dt does not push the
     following ones late; overruns are counted and reported instead, since they
     mean the commanded speed was not actually achieved.
+
+    Each command carries a target velocity, the finite difference of consecutive
+    IK solutions. With command_joint_pos (target velocity 0) the motors' kd term
+    brakes every moving joint, so it settles (kd/kp)*qdot behind its target --
+    0.15 s on wrists 2 and 3, i.e. more than a whole leg at 4 rad/s. With the
+    target velocity sent, kd damps around it instead. The last command is
+    re-sent with zero velocity on return, so the arm holds there rather than
+    being pushed along by a stale feedforward.
     """
-    n_overrun = n_fail = 0
+    n_overrun = n_fail = n_clip = 0
+    zero_vel = np.zeros(N_ARM)
+    init_q = np.asarray(init_q, dtype=float)[:N_ARM].copy()
+    steps_since_cmd = 1  # dt slots since the last good command, for the velocity estimate
     next_t = time.perf_counter() + dt
     for i, target_pose in enumerate(waypoints):
         ok, ik_q = kin.ik(target_pose, ee_site, init_q=init_q)
         if not ok:
             n_fail += 1
+            steps_since_cmd += 1
             # Hold the last good command, but still consume this step's time slot so
-            # an IK failure does not silently compress the trajectory timeline.
+            # an IK failure does not silently compress the trajectory timeline. Re-send
+            # it with zero velocity: a held target with a live feedforward is not a hold.
+            robot.command_joint_state({"pos": init_q, "vel": zero_vel})
             print(f"    IK failed at waypoint {i}; holding last good solution")
         else:
-            robot.command_joint_pos(ik_q[:N_ARM])
-            init_q = ik_q[:N_ARM]
+            q_cmd = ik_q[:N_ARM]
+            # Averaged over the gap after IK failures, so the catch-up step is not
+            # credited with several slots' worth of motion in one.
+            vel = (q_cmd - init_q) / (steps_since_cmd * dt)
+            if np.any(np.abs(vel) > MAX_FF_VEL):
+                n_clip += 1
+                vel = np.clip(vel, -MAX_FF_VEL, MAX_FF_VEL)
+            robot.command_joint_state({"pos": q_cmd, "vel": vel})
+            init_q = q_cmd
+            steps_since_cmd = 1
         _sync(viewer)
         if recorder is not None:
             recorder.sample(traj_idx, phase)
@@ -317,6 +347,12 @@ def execute_waypoints(robot, kin, ee_site, waypoints, init_q, dt, viewer=None,
                  f"kinematic limit" if n_fail else f"the loop cannot sustain dt={dt}s; increase --dt")
         print(f"    WARNING: {n_overrun}/{len(waypoints)} steps ({pct:.0f}%) overran "
               f"dt={dt}s; {cause}")
+    if n_clip:
+        # Commanded joint speeds stay below the cap, so a clip means a joint jumped
+        # between consecutive IK solutions (or caught up after failures).
+        print(f"    WARNING: {n_clip} step(s) needed > {MAX_FF_VEL} rad/s velocity feedforward "
+              f"and were clipped; IK jumped between consecutive solutions")
+    robot.command_joint_state({"pos": init_q, "vel": zero_vel})
     return init_q
 
 

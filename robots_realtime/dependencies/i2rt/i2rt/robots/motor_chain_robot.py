@@ -522,10 +522,12 @@ class MotorChainRobot(Robot):
         """
         pos = self._clip_robot_joint_pos_command(joint_state["pos"])
         vel = joint_state["vel"]
-        self._commands = JointCommands.init_all_zero(len(self.motor_chain))
         kp = joint_state.get("kp", self._kp)
         kd = joint_state.get("kd", self._kd)
         with self._command_lock:
+            # Reset inside the lock (as command_joint_pos does): resetting outside it let
+            # update() copy an all-zero command -- kp=kd=0, gravity comp only -- for a tick.
+            self._commands = JointCommands.init_all_zero(len(self.motor_chain))
             self._commands.pos = self.remapper.to_robot_joint_pos_space(pos)
             self._commands.vel = self.remapper.to_robot_joint_vel_space(vel)
             self._commands.kp = kp
