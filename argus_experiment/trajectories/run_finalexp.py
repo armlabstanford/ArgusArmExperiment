@@ -55,15 +55,15 @@ import numpy as np
 AXES_ORDER    = ("roll", "pitch", "yaw")    # camera-frame rotation axes
 WAVES         = ("sawtooth", "sinusoidal")
 WAVE_TAG      = {"sawtooth": "saw", "sinusoidal": "sin"}
-SPEEDS_DPS    = (30, 60, 120, 240)          # deg/s: sawtooth speed = mean leg speed of both waves
+SPEEDS_DPS    = (30, 60, 120)          # deg/s: sawtooth speed = mean leg speed of both waves
 SEED          = 1117                        # fixed, so each round's order is reproducible and resumable
 
 AMPLITUDE_DEG = 30.0      # deg - the sweep runs -A..+A about the start pose
 DWELL         = 0.5       # s   - rest at every edge, same for every condition
-SWEEP_TIME    = 30.0      # s   - sweep cycles per recording, same for every condition
-STILL_TIME    = 10.0      # s   - still at the start pose once both recordings are up
+SWEEP_TIME    = 60.0      # s   - sweep cycles per recording, same for every condition
+STILL_TIME    = 20.0      # s   - still at the start pose once both recordings are up
 RAMP_TIME     = 2.0       # s   - start pose -> -A, same for every condition
-DT            = 0.0025    # s   - control timestep, same for every condition
+DT            = 1/300    # s   - control timestep, same for every condition
 
 
 # ---------------------------------------------------------------------------
