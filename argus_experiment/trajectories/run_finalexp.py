@@ -1,10 +1,11 @@
 """
 Final experiment: one recording of one (axis, waveform, speed) condition.
 
-A round is 3 axes x 4 speeds x 2 waveforms = 24 recordings, each with its own
-ARGUS bag and mocap bag. run_finalexp.sh (repo root) runs one round per
-invocation, back to back in the order `schedule --round N` prints, launching
-this script once per recording:
+A trial is 3 axes x 3 speeds x 2 waveforms = 18 recordings, each with its own
+ARGUS bag and mocap bag. A session is N_TRIALS trials, each running every
+condition once in its own random order. run_finalexp.sh (repo root) runs the
+whole session back to back in the order `schedule` prints (trial0, trial1, ...),
+launching this script once per recording:
 
     robot up -> TRAJ_START_QPOS
       -> --on-ready hook: start ARGUS + mocap; returns once both are recording
@@ -20,22 +21,24 @@ T = 4A/v + 2*DWELL, the same cycle count SWEEP_TIME / T and the same mean leg
 speed v. Only the velocity profile differs: constant with sharp reversals, or
 a half-cosine whose peak is pi/2 = 1.57x v. The sweep time is fixed rather
 than the cycle count, so every condition drifts for the same time, and every
-condition has the same rest schedule. With A = 30 deg and DWELL = 0.5 s:
+condition has the same rest schedule. With A = 30 deg, DWELL = 0.5 s and
+SWEEP_TIME = 60 s:
 
-    v (deg/s)      30    60    120   240
-    leg (s)        2     1     0.5   0.25
-    T (s)          5     3     2     1.5
-    cycles         6     10    15    20
-    sine peak      47    94    188   377   (deg/s)
+    v (deg/s)      30    60    120
+    leg (s)        2     1     0.5
+    T (s)          5     3     2
+    cycles         12    20    30
+    sine peak      47    94    188   (deg/s)
 
-Each recording: STILL_TIME + RAMP_TIME + DWELL + SWEEP_TIME = 42.5 s of arm
+Each recording: STILL_TIME + RAMP_TIME + DWELL + SWEEP_TIME = 82.5 s of arm
 time after both recordings are up. All rotation is about the camera's own axes
 (camera_site from the hand-eye result), as in run_trajectories.py. No robot
 data is saved.
 
 Usage:
-    python run_finalexp.py schedule --round 2   # round 2's randomized run order
-    python run_finalexp.py check         # offline IK + joint-speed check of all 24 conditions
+    python run_finalexp.py schedule             # the session's run order: every trial, randomized
+    python run_finalexp.py schedule --trials 1  # trial0 only
+    python run_finalexp.py check         # offline IK + joint-speed check of all 18 conditions
     python run_finalexp.py run NAME --axis pitch --wave sinusoidal --speed 120 --sim
 """
 
@@ -56,7 +59,8 @@ AXES_ORDER    = ("roll", "pitch", "yaw")    # camera-frame rotation axes
 WAVES         = ("sawtooth", "sinusoidal")
 WAVE_TAG      = {"sawtooth": "saw", "sinusoidal": "sin"}
 SPEEDS_DPS    = (30, 60, 120)          # deg/s: sawtooth speed = mean leg speed of both waves
-SEED          = 1117                        # fixed, so each round's order is reproducible and resumable
+N_TRIALS      = 4                           # trials per session (data in SESSION_TAG/trial0 .. trial3)
+SEED          = 1120                        # fixed, so each trial's order is reproducible and resumable
 
 AMPLITUDE_DEG = 30.0      # deg - the sweep runs -A..+A about the start pose
 DWELL         = 0.5       # s   - rest at every edge, same for every condition
@@ -69,19 +73,19 @@ DT            = 1/300    # s   - control timestep, same for every condition
 # ---------------------------------------------------------------------------
 # Schedule
 # ---------------------------------------------------------------------------
-def make_schedule(round_no: int, seed: int = SEED) -> list[tuple]:
-    """(name, axis, wave, speed_dps, round) for the 24 recordings of one round, in run order.
+def make_schedule(trial: int, seed: int = SEED) -> list[tuple]:
+    """(name, axis, wave, speed_dps, trial) for every condition of one trial, in run order.
 
-    Every round is its own random permutation of all 24 conditions (seeded by
-    the round number), so each condition runs once per round and slow drifts
-    over a session (temperature, battery, Motive calibration) spread evenly
-    across repeats instead of piling onto one.
+    Every trial is its own random permutation of all conditions (seeded by the
+    trial number), so each condition runs once per trial and slow drifts over
+    a session (temperature, battery, Motive calibration) spread evenly across
+    repeats instead of piling onto one.
     """
-    if round_no < 1:
-        raise ValueError(f"round must be >= 1, got {round_no}")
-    rng = np.random.default_rng([seed, round_no])
+    if trial < 0:
+        raise ValueError(f"trial must be >= 0, got {trial}")
+    rng = np.random.default_rng([seed, trial])
     conditions = [(a, w, v) for a in AXES_ORDER for w in WAVES for v in SPEEDS_DPS]
-    return [(f"fe_r{round_no}_{i + 1:02d}_{a}_{WAVE_TAG[w]}_{v}dps", a, w, v, round_no)
+    return [(f"fe_t{trial}_{i + 1:02d}_{a}_{WAVE_TAG[w]}_{v}dps", a, w, v, trial)
             for i, (a, w, v) in enumerate(conditions[k] for k in rng.permutation(len(conditions)))]
 
 
@@ -210,8 +214,9 @@ def _hook(cmd: str, label: str) -> bool:
 # Subcommands
 # ---------------------------------------------------------------------------
 def cmd_schedule(args) -> None:
-    for row in make_schedule(args.round, args.seed):
-        print("\t".join(str(x) for x in row))
+    for trial in range(args.trials):
+        for row in make_schedule(trial, args.seed):
+            print("\t".join(str(x) for x in row))
 
 
 def cmd_run(args) -> int:
@@ -321,8 +326,8 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Final experiment: one recording per condition")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("schedule", help="Print one round's run order: name, axis, wave, speed_dps, round (TSV)")
-    s.add_argument("--round", type=int, default=1)
+    s = sub.add_parser("schedule", help="Print the session's run order: name, axis, wave, speed_dps, trial (TSV)")
+    s.add_argument("--trials", type=int, default=N_TRIALS, help="Number of trials (trial0 .. trialN-1)")
     s.add_argument("--seed", type=int, default=SEED)
 
     c = sub.add_parser("check", help="Offline IK and joint-speed check of every condition")
